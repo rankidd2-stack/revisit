@@ -48,7 +48,19 @@
           "state": "done"
         },
         {
-          "name": "Database wiring and Google Sheet sync",
+          "name": "Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)",
+          "state": "done"
+        },
+        {
+          "name": "Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",
+          "state": "todo"
+        },
+        {
+          "name": "Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock",
+          "state": "todo"
+        },
+        {
+          "name": "Philippines market pack split",
           "state": "todo"
         }
       ]
@@ -147,7 +159,7 @@
     }
   ],
   "tests": {
-    "passing": 116,
+    "passing": 136,
     "failing": 0
   },
   "needsPatrick": [
