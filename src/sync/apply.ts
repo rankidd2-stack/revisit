@@ -23,7 +23,7 @@ export interface SyncOutcome {
 }
 
 /** Names and refs are identifiers only: drop bracketed notes and text after a dash, cap the length. */
-const cleanName = (n: string) => n.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").split(/\s[-\u2013\u2014]\s/)[0]!.replace(/\s+/g, " ").trim().slice(0, 80) || n.slice(0, 80).trim();
+const cleanName = (n: string) => n.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").split(/\s[-\u2013\u2014]\s/)[0]!.replace(/\s+/g, " ").trim().slice(0, 80) || "Patient";
 const cleanRef = (r: string | null) => (r && /^\S{1,40}$/.test(r) ? r : null);
 
 /** Logs a run that failed before any file reached applySync (for example a Sheet fetch), so sends pause. */
@@ -46,6 +46,7 @@ const today = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/
  * Error codes are fixed words, never file content.
  */
 export async function applySync(db: Db, clinicId: string, text: string, source: SyncSource, now = new Date()): Promise<SyncOutcome> {
+  if (!(await db.query(`select 1 from clinics where id = $1`, [clinicId])).rows.length) throw new Error("clinic_not_found");
   const run = (await db.query<{ id: string }>(
     `insert into sync_runs (clinic_id, source) values ($1, $2) returning id`, [clinicId, source])).rows[0]!;
   const out: SyncOutcome = { ok: false, runId: run.id, errorCode: null, contactsAdded: 0, contactsUpdated: 0, contactsSkippedInactive: 0, conflicts: 0, visitsAdded: 0, result: null };

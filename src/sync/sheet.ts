@@ -40,7 +40,7 @@ export async function syncSheet(db: Db, clinicId: string, fetcher: Fetcher, shee
     text = await fetchSheetCsv(fetcher, sheetId, gid);
   } catch (e) {
     const code = e instanceof Error && /^[a-z0-9_]{1,64}$/.test(e.message) ? e.message : "sheet_fetch_failed";
-    await recordFailedRun(db, clinicId, "google_sheet", code);
+    try { await recordFailedRun(db, clinicId, "google_sheet", code); } catch { /* db down: still report the failure */ }
     return { ok: false, runId: "", errorCode: code, contactsAdded: 0, contactsUpdated: 0, contactsSkippedInactive: 0, conflicts: 0, visitsAdded: 0, result: null };
   }
   return applySync(db, clinicId, text, "google_sheet", now);
