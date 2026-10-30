@@ -4,6 +4,8 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 
 | Date | Decision | By | Reversible? |
 | --- | --- | --- | --- |
+| 2026-10-30 | Allowlist scope: "cleaning", "check-up" and "consultation" allowed in default texts for all human clinics (dental, aesthetic, other). English words only; linis and konsulta are not on it. Texts about dependents stay strict until the legal consult | Patrick | Yes |
+| 2026-10-30 | Runs may fix and finish any parked claude/ branch, and merge into main whenever docs/AUTOPILOT.md step 7 allows | Patrick | Yes |
 | 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
 | 2026-10-30 | "Cleaning", "check-up" and "consultation" allowed in default patient texts, including when they are a clinic's own service category names (explicit English allowlist; a generic qualifier like "Dental" is fine, anything more still blocks). Default treatment list unchanged | Patrick | Yes |
 | 2026-10-30 | Compliance pass 1 fixes: single send pipeline (texts cannot skip checks), email mutes, append-only consent ledger, sender-name approval, service text mapped to clinic categories, dental testimonials blocked in schema, wider DTI and claim wording checks | Claude (from compliance-guard) | Yes |
@@ -85,3 +87,10 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - compliance-guard pass 3 (round 2 diff): pass with risks G9, G11, G12 open. It has not seen the round 3 changes; run it again after the R47 fix.
 - Tests on the branch: 159 passing, 0 failing; typecheck clean.
 - Next run: finish this branch first (fix R47, R48-R52, reviewer and compliance-guard again), then merge. The allowlist scope question (G12, R46) stays with Patrick.
+
+## 2026-10-30 -- Patrick's answers, integration run
+- Allowlist scope (closes R46 and G12): all human clinics; English words only, so a clinic category named "Linis" or "Konsulta" still blocks; texts about a dependent stay strict. The code already applied the allowlist to every human clinic; tests now pin all three points.
+- Parked branches: fix and finish them. Merging into main follows AUTOPILOT step 7.
+- R50 (Claude): "about a dependent" is now fail-closed. `prepareSms` requires a subject, and only self, pet and package get the relaxed rules; "other" (another person), a missing value or anything unknown is strict. `checkContent` keeps the allowlist off unless the caller turns it on.
+- R57 (Claude): migration 002 trims existing emails before adding its checks, and adds the consent ledger checks as NOT VALID, because the ledger is append-only and old rows can't be corrected.
+- Known gap, accepted (Claude): a clinic word typed with a plain space inside it ("pre natal" for a "Prenatal" category) is not caught. Hyphens, dots, invisible characters and run-together words are. Catching split words would mean matching every pair of adjacent words, which over-blocks ordinary text.
