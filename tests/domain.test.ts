@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nextRecallStep, type RecallRule } from "../src/domain/recall.js";
 import { checkEligibility, DEFAULT_POLICY, type ContactState } from "../src/domain/eligibility.js";
-import { buildFooter, checkContent, measureSms, normalizeForSms, smsCostCentavos } from "../src/domain/sms.js";
+import { buildFooter, checkContent, isAllowedVisitTerm, measureSms, normalizeForSms, smsCostCentavos } from "../src/domain/sms.js";
 import { manilaDate, manilaHour, manilaInstant } from "../src/domain/time.js";
 import { latestConsent, latestVisit, type ConsentRecord } from "../src/domain/contact-state.js";
 
@@ -237,5 +237,29 @@ describe("contact state", () => {
     expect(latestVisit(["2026-10-01", "2026-09-01"], [])).toBe("2026-10-01");
     // 17:30 UTC on Oct 30 is 01:30 on Oct 31 in Manila.
     expect(latestVisit(["2026-10-01"], [at("2026-10-30T17:30:00Z")])).toBe("2026-10-31");
+  });
+});
+
+describe("routine visit words (Patrick, 2026-10-30)", () => {
+  const dental = (body: string, sensitiveTerms: string[]) =>
+    checkContent(body, { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false, sensitiveTerms }).map((i) => i.code);
+
+  it("cleaning, check-up and consultation pass even when they are the clinic's own service categories", () => {
+    const categories = ["Cleaning", "Dental check-up", "Consultation", "Teeth cleaning", "Checkup", "Check up", "Annual check-ups"];
+    for (const body of ["Hi Ana, your cleaning is due.", "Hi Ana, your dental check-up is due.", "Hi Ana, time for a consultation.",
+      "Hi Ana, your teeth cleaning is due.", "Hi Ana, your checkup is due.", "Hi Ana, your annual check-ups are due."]) {
+      expect(dental(body, categories)).toEqual([]);
+    }
+  });
+  it("only a routine word, alone or after a generic qualifier, is allowed", () => {
+    for (const t of ["cleaning", "Check-up", "check up", "checkups", "consultations", "Dental  cleaning", "routine check-up"]) expect(isAllowedVisitTerm(t)).toBe(true);
+    for (const t of ["Cleaning and whitening", "Deep cleaning", "Ortho consultation", "Implant check-up", "Root canal", "", "cleaning;"]) expect(isAllowedVisitTerm(t)).toBe(false);
+  });
+  it("treatments still block, in a category or the default list, even next to an allowed word", () => {
+    expect(dental("Hi Ana, your cleaning and whitening is due.", ["Cleaning and whitening"])).toContain("names_treatment");
+    expect(dental("Hi Ana, your ortho consultation is due.", ["Ortho consultation"])).toContain("names_treatment");
+    expect(dental("Hi Ana, your deep cleaning is due.", ["Deep cleaning"])).toContain("names_treatment");
+    expect(dental("Hi Ana, your cleaning and scaling are due.", ["Cleaning"])).toContain("names_treatment");
+    expect(dental("Hi Ana, your check-up and x-ray are due.", ["Dental check-up"])).toContain("names_treatment");
   });
 });

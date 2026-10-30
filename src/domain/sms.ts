@@ -143,6 +143,18 @@ const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
 };
 const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
 
+// Routine visit words allowed in default texts (Patrick, 2026-10-30): they say nothing a clinic's
+// name doesn't already say. A clinic service category named with one of these, alone or after a
+// generic qualifier ("Dental check-up", "Teeth cleaning"), is not treated as a treatment name.
+// Anything more ("Cleaning and whitening") still blocks, and the default treatment list still applies.
+export const ALLOWED_VISIT_WORDS = ["cleaning", "check-up", "consultation"] as const;
+const ALLOWED_VISIT_TERM = /^(?:(?:dental|teeth|tooth|general|routine|regular|annual)\s+)?(?:cleanings?|check[\s-]?ups?|consultations?)$/i;
+
+/** True if a clinic term is only a routine visit word, so naming it in a default text is fine. */
+export function isAllowedVisitTerm(term: string): boolean {
+  return ALLOWED_VISIT_TERM.test(term.trim().replace(/\s+/g, " "));
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function checkContent(body: string, opts: ContentCheckOptions): ContentIssue[] {
@@ -165,7 +177,8 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
     const human = opts.vertical !== "vet";
     const terms = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(opts.sensitiveTerms ?? [])];
     const roots = new Set(human ? FILIPINO_ROOTS : []);
-    for (const t of new Set([...terms.map((x) => x.trim().toLowerCase()).filter(Boolean), ...roots])) {
+    const blocked = terms.map((x) => x.trim().toLowerCase()).filter((x) => x && !isAllowedVisitTerm(x));
+    for (const t of new Set([...blocked, ...roots])) {
       const re = roots.has(t) ? new RegExp(escapeRe(t), "i") : new RegExp(`\\b${escapeRe(t)}`, "i");
       if (re.test(body)) {
         issues.push({ code: "names_treatment", message: `"${t}" names a treatment; default texts must not (lock-screen privacy).` });

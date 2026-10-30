@@ -217,6 +217,13 @@ describe("send pipeline", () => {
     const r = prep({ policy: stale, event: campaignEvent, approval: camp("Clinic news", { staleAcknowledgedBy: "staff:7" }) });
     expect(r.ok && r.sms.staleAcknowledgedBy).toBe("staff:7");
   });
+  it("a dental clinic's cleaning and check-up categories don't block a default recall; treatments still do", () => {
+    const dental = { ...clinic, vertical: "dental" as const, serviceCategories: ["Cleaning", "Dental check-up", "Consultation", "Root canal"] };
+    for (const template of ["Hi {first_name}, your cleaning is due.", "Hi {first_name}, your dental check-up is due.", "Hi {first_name}, book your consultation."]) {
+      expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template }) }).ok).toBe(true);
+    }
+    expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your root canal visit is due." }) })).toMatchObject({ ok: false, reason: "content" });
+  });
   it("checks clinic-entered footer links for shorteners", () => {
     expect(prep({ clinic: { ...clinic, replyPhone: null, messengerUrl: "https://bit.ly/x" } })).toMatchObject({ ok: false, reason: "content" });
   });

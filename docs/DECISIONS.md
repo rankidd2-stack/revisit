@@ -4,6 +4,7 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 
 | Date | Decision | By | Reversible? |
 | --- | --- | --- | --- |
+| 2026-10-30 | "Cleaning", "check-up" and "consultation" allowed in default patient texts, including when they are a clinic's own service category names (explicit English allowlist; a generic qualifier like "Dental" is fine, anything more still blocks). Default treatment list unchanged | Patrick | Yes |
 | 2026-10-30 | Compliance pass 1 fixes: single send pipeline (texts cannot skip checks), email mutes, append-only consent ledger, sender-name approval, service text mapped to clinic categories, dental testimonials blocked in schema, wider DTI and claim wording checks | Claude (from compliance-guard) | Yes |
 | 2026-10-30 | Vets may name pet care (vaccine, deworming) in texts; human clinics may not name treatments by default. Overrides compliance-guard's suggestion to block vet terms: pet records are not human health data | Claude | Yes |
 | 2026-10-30 | Working name "Revisit" for the codebase (placeholder); brand name is Patrick's call | Claude | Yes |
@@ -48,3 +49,11 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Kept on purpose: the Tagalog/Taglish wording checks (bunot, pasta, hindi masakit, etc.). They are compliance filters for PH texts, not branding.
 - Next (Claude decides, code structure): move PH specifics (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists) into a "Philippines market pack" during database wiring, so the core is country-neutral.
 | 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
+
+## 2026-10-30 -- Routine visit words allowed (Patrick)
+- Patrick: "cleaning" and "check-up" are allowed in default patient texts. "Consultation" added to the same allowlist on Patrick's instruction.
+- Built as an explicit allowlist in src/domain/sms.ts (`ALLOWED_VISIT_WORDS`, `isAllowedVisitTerm`). A clinic service category whose name is only one of these words, optionally after a generic qualifier (dental, teeth, tooth, general, routine, regular, annual), no longer blocks a default text. Plurals and "checkup" / "check up" spellings are covered.
+- Still blocked: categories with anything more ("Cleaning and whitening", "Deep cleaning", "Ortho consultation", "Implant check-up"), and every word on the default treatment list, even in the same text as an allowed word.
+- Applies to texts about dependents too. The open legal check on dependent texts (DPA s.13) still stands; if counsel says otherwise, dependent texts drop the allowlist.
+- Not covered: "linis" (Filipino for cleaning). It is not on any default list, so it only blocks if a clinic names a category "Linis". The allowlist is English only, as instructed; adding Filipino visit words is a small follow-up if Patrick wants it.
+

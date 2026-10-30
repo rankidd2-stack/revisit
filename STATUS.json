@@ -182,10 +182,6 @@
     {
       "item": "Brand name",
       "recommendation": "Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains"
-    },
-    {
-      "item": "OK to allow the word cleaning/linis/check-up in default texts?",
-      "recommendation": "Yes. Routine care, the clinic name already shows it is a dental visit, and blocking it blocks nearly every recall"
     }
   ],
   "flags": []
