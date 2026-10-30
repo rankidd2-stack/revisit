@@ -140,6 +140,12 @@ export interface PrepareArgs {
 
 const MOBILE_RE = /^639\d{9}$/;
 
+// Placeholders that hold a name, never wording the clinic approved. Masked for the treatment check.
+const NAME_VARS = ["first_name", "last_name", "full_name", "pet_name", "clinic", "clinic_name"];
+function maskNames(vars: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(NAME_VARS.filter((k) => typeof vars[k] === "string").map((k) => [k, "Name"]));
+}
+
 export function prepareSms(a: PrepareArgs): PrepareResult {
   const { clinic } = a;
   if (!approvalCovers(a.approval, a.event)) return { ok: false, reason: "not_approved" };
@@ -160,6 +166,9 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
   const rendered = renderTemplate(approval.template, a.vars);
   if (rendered === null) return { ok: false, reason: "missing_variable" };
   const text = normalizeForSms(rendered).trim();
+  // Treatment words are judged on the approved wording with names masked (patient, pet, clinic).
+  const masked = renderTemplate(approval.template, { ...a.vars, ...maskNames(a.vars) });
+  const treatmentText = normalizeForSms(masked ?? rendered).trim();
   const human = clinic.vertical !== "vet";
   const aboutSomeoneElse = !ABOUT_CONTACT_OR_PET.has(a.subject);
   const issues = checkContent(text, {
@@ -169,6 +178,7 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
     // The routine-word allowlist is off for texts about another person until the legal check (DPA s.13).
     allowVisitWords: !aboutSomeoneElse,
     sensitiveTerms: human ? clinic.serviceCategories : [],
+    treatmentText,
   });
   if (issues.length) return { ok: false, reason: "content", issues };
 

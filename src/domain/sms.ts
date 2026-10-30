@@ -130,6 +130,12 @@ export interface ContentCheckOptions {
   sensitiveTerms?: string[];   // clinic-specific words; the send pipeline adds the clinic's service categories for human clinics
   /** Routine visit words may be named. Off unless the caller turns it on; never on for a text about someone else. */
   allowVisitWords?: boolean;
+  /**
+   * The text treatment words are matched in, when it differs from `body`: the send pipeline passes the
+   * approved template with the patient's, pet's and clinic's names masked, so a name ("Stephanie",
+   * "Psych Wellness Center") never blocks a text and only the approved wording is judged.
+   */
+  treatmentText?: string;
 }
 
 // Human treatments are health data under the DPA, so they stay off lock screens by default.
@@ -144,12 +150,17 @@ const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
     "x-ray", "xray", "periodont",
     // Sensitive health care a GP, OB or other human clinic might put before an allowed visit word
     // ("STD check-up", "pregnancy consultation"). Sexual, reproductive and mental health first.
-    "hiv", "std", "sti", "aids", "pregnan", "prenatal", "antenatal", "postnatal", "pap smear", "ob-gyn", "obgyn", "gyne", "obstet",
+    "hiv", "std", "sti", "pregnan", "prenatal", "antenatal", "postnatal", "pap smear", "ob-gyn", "obgyn", "gyne", "obstet",
     "ivf", "fertility", "contracept", "family planning", "psych", "mental health", "counsel", "rehab", "onco", "cancer", "chemo",
-    "tumor", "dialysis", "hepatitis", "tuberculosis", "diabet", "ultrasound", "vasectom", "ligation"],
+    "tumor", "tumour", "dialysis", "hepatitis", "tuberculosis", "diabet", "ultrasound", "vasectom", "ligation",
+    "infertil", "syphil", "gonorr", "herpes", "chlamyd", "abort", "miscarr", "menopaus", "buntis", "tuli", "depress", "anxiety",
+    "autis", "therap", "hypertens", "kidney", "renal", "cardi", "urolog", "biops", "mammo", "breast", "hormone", "transgender",
+    "drug test", "circumcis", "addict"],
   vet: ["euthan"],
 };
 const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
+// Default words that only ever match whole (plurals included), because as a word start they hit ordinary text ("hearing aids").
+const DEFAULT_WHOLE_WORDS = ["aids", "tb", "ob", "hpv", "pcos", "adhd"];
 
 // Routine visit words allowed in default texts for every human clinic (Patrick, 2026-10-30): they
 // say nothing a clinic's sender name doesn't already say. English words only. A clinic category made
@@ -157,7 +168,9 @@ const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
 // not treated as a treatment name. Anything more ("Deep cleaning") still blocks, and the default
 // treatment list still applies.
 export const ALLOWED_VISIT_WORDS = ["cleaning", "check-up", "consultation"] as const;
-const ROUTINE_WORDS = new Set(["cleaning", "cleanings", "checkup", "checkups", "consultation", "consultations"]);
+// Short forms ("consult", "check", "clean") are the same three words as clinics write them.
+const ROUTINE_WORDS = new Set(["cleaning", "cleanings", "clean", "checkup", "checkups", "check", "checks",
+  "consultation", "consultations", "consult", "consults"]);
 const QUALIFIERS = new Set(["dental", "teeth", "tooth", "general", "routine", "regular", "annual"]);
 
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
@@ -201,8 +214,6 @@ const PLAIN_WORDS = new Set([...ROUTINE_WORDS, ...QUALIFIERS,
   "visit", "visits", "appointment", "appointments", "session", "sessions", "follow", "up", "due", "care", "service", "services",
   "new", "first", "adult", "adults", "kids", "child", "children", "patient", "patients", "family", "clinic", "test", "tests",
   "min", "mins", "minute", "minutes", "hr", "hrs", "hour", "hours", "day", "days", "week", "weeks", "month", "months", "year", "years"]);
-// A name after one of these is a doctor's name, which also blocks patients who share it. It never blocks alone.
-const TITLES = new Set(["dr", "dra", "doc", "doctor"]);
 
 const FORMS: readonly Form[] = ["spaced", "joined", "solid"];
 
@@ -221,7 +232,7 @@ function wordPattern(t: string): string {
  * Patterns a default text must not contain.
  *  - Default stems and clinic words follow `wordPattern`; Filipino roots match anywhere in a word.
  *  - A clinic category matches as a whole phrase, and each of its words of 2 letters or more
- *    ("TB", "HIV", "deep") also blocks alone, unless it is a plain word, a number or a doctor's name.
+ *    ("TB", "HIV", "deep") also blocks alone, unless it is a plain word or a number ("30", "2nd").
  *  - With the allowlist on, a category of only routine words blocks nothing and routine words never
  *    block alone. With it off (texts about someone else) they block like any other word.
  */
@@ -236,7 +247,10 @@ function treatmentMatchers(human: boolean, clinicTerms: string[], allowVisitWord
       if (t) add(wordPattern(t), stem, null);
     }
   }
-  if (human) for (const root of FILIPINO_ROOTS) add(escapeRe(root), root, null);
+  if (human) {
+    for (const root of FILIPINO_ROOTS) add(escapeRe(root), root, null);
+    for (const w of DEFAULT_WHOLE_WORDS) add(START + escapeRe(w) + "(?:e?s)?" + END, w, null);
+  }
   for (const term of clinicTerms) {
     if (typeof term !== "string" || !LETTER_OR_DIGIT.test(term)) continue;
     if (allowVisitWords && isAllowedVisitTerm(term)) continue;
@@ -246,12 +260,11 @@ function treatmentMatchers(human: boolean, clinicTerms: string[], allowVisitWord
       if (!t) continue;
       add(wordPattern(t), t, label);
       if (mode === "solid") continue;
-      const words = wordsOf(t);
-      words.forEach((w, i) => {
-        if (w.length < 2 || /^\p{N}+$/u.test(w) || TITLES.has(words[i - 1] ?? "")) return;
+      for (const w of wordsOf(t)) {
+        if (w.length < 2 || /^\p{N}+(?:st|nd|rd|th)?$/u.test(w)) continue;
         const plain = PLAIN_WORDS.has(w) && !(ROUTINE_WORDS.has(w) && !allowVisitWords);
         if (!plain) add(wordPattern(w), w, label);
-      });
+      }
     }
   }
   return [...out.values()];
@@ -275,7 +288,8 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
   }
   if (!opts.nameTreatmentsAllowed) {
     const human = opts.vertical !== "vet";
-    const texts = [forMatching(body, "spaced"), forMatching(body, "joined")];
+    const judged = opts.treatmentText ?? body;
+    const texts = [forMatching(judged, "spaced"), forMatching(judged, "joined")];
     const seen = new Set<string>();
     for (const m of treatmentMatchers(human, opts.sensitiveTerms ?? [], opts.allowVisitWords === true)) {
       if (!texts.some((t) => m.re.test(t))) continue;

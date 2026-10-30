@@ -230,6 +230,14 @@ describe("send pipeline", () => {
     // Texts about a dependent stay strict until the legal check (DPA s.13).
     expect(prep({ clinic: dental, subject: "dependent", approval: auto("recall-rule:r1", { template: "Hi {first_name}, Mika's dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
     // R50: another person, or a missing or unknown subject from an untyped payload, gets the strict rules.
+    // R60/R66/R67: patient, pet and clinic names are masked for the treatment check, so a name never blocks.
+    const named = { ...dental, serviceCategories: ["Dr Ana consultation", "Step 1", "Psych"] };
+    const tpl = "Hi {first_name}, your check-up at {clinic} is due.";
+    for (const vars of [{ first_name: "Ana", clinic: "Smile" }, { first_name: "Stephanie", clinic: "Smile" }, { first_name: "Bea", clinic: "Psych Wellness Center" }]) {
+      expect(prep({ clinic: named, vars, approval: auto("recall-rule:r1", { template: tpl }) }).ok).toBe(true);
+    }
+    // ...but the approved wording itself is still judged.
+    expect(prep({ clinic: named, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your psychiatry visit is due." }) })).toMatchObject({ ok: false, reason: "content" });
     // G15: a package may be a child's, so it is strict too.
     for (const subject of ["other", "package", undefined, "Self", ""]) {
       expect(prep({ clinic: dental, subject: subject as never, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });

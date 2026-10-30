@@ -103,3 +103,12 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - G15 (Claude): "package" subjects are strict; assets carry no owner, so a package may be a child's.
 - DEFERRED to Wiring 2 (G16): the loader should work out the subject from assets.kind of the event's asset, instead of trusting the caller.
 - R61: accepted limit, now pinned by a test (see the earlier note on words split by a plain space).
+
+## 2026-10-30 -- Reviewer round 5 (fail) and compliance round 2 (pass with G18): fixes
+- R64 (blocker): the "name after Dr/Dra never blocks" rule let clinical words through. Removed. Lesson: exceptions in the matcher open holes; prefer judging less text over adding exceptions.
+- R60, R66, R67 (Claude, code structure): treatment words are now judged on the approved template with name placeholders (first_name, last_name, full_name, pet_name, clinic, clinic_name) masked. A patient called Stephanie, a doctor's name in a category, or a clinic called "Psych Wellness Center" no longer blocks a text; the clinic's sender name already shows its name. Discount, claim, shortener and TEST checks still read the real text. A doctor's name written into the template itself still blocks (fails closed).
+- R65 (Claude, reading of Patrick's allowlist): "consult", "check" and "clean" are the same three words as clinics write them, so they count as routine words.
+- R68: ordinals ("2nd") never block alone.
+- G18 (Claude, defaults): default human list extended with TB, OB, HPV, PCOS, ADHD (whole words) and infertility, STIs, reproductive, mental health, kidney, heart, cancer screening and other stems. Stricter only. Consequence: a human clinic's marketing text like "Free diabetes talk" is blocked unless the clinic opted in to naming treatments, which is locked decision 9 working as intended.
+- G19: "aids" matches whole words only; "hearing aids" still blocks. Accepted: it fails closed and the clinic sees why.
+- Compliance note for the legal consult: the word list can never be complete. The lasting safeguard is the clinic's own service list, filled in at onboarding; the console makes that a required setup step.
