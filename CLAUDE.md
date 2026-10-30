@@ -1,8 +1,11 @@
 # Revisit -- clinic retention console (placeholder name)
 
 Clinic-facing tool that brings existing patients back. Philippines first, dental and vet first.
-Owner: Patrick. Builder: Claude (main session). Full spec: the "Clinic Retention Engine (PH)" doc,
-tabs "Product spec v1", "Features and markets", "Add-on backlog".
+Owner: Patrick. Builder: Claude. Everything needed lives in this repo:
+- docs/SPEC.md: market research, full feature catalog, build sequence, add-on backlog (background; this file wins).
+- docs/DECISIONS.md: every decision since, with reasons. design/: the design system (Revisit Green).
+- STATUS.json: phases and milestones (source of truth); docs/STATUS.md: the readable status page (`npm run status`).
+- docs/AUTOPILOT.md: how every build run works.
 
 ## Locked decisions (change only with Patrick's explicit OK; log in docs/DECISIONS.md)
 1. Clinic-facing only. No patient chatbot. Patient replies go to the clinic's own number, Messenger or email.
@@ -37,12 +40,22 @@ tabs "Product spec v1", "Features and markets", "Add-on backlog".
 Run reviewer and compliance-guard before any milestone is marked done.
 
 ## Unattended runs
-Scheduled runs follow docs/AUTOPILOT.md step by step: one milestone per run, reviewer and
-compliance-guard before merge, anything in Patrick's decision rights parked as a PR plus a needsPatrick entry.
+Every build run follows docs/AUTOPILOT.md step by step: integrate unmerged claude/ branches first, then one
+milestone at a time, reviewer and compliance-guard before merge, anything in Patrick's decision rights parked
+as a PR plus a needsPatrick entry. docs/KICKOFF.md is the prompt Patrick uses to start a session.
+
+## Working with Patrick
+- He is the owner, not a developer reviewer. Explain in plain words; lead with the uncomfortable truth.
+- Tag claims [Certain], [Likely] or [Guessing]. Disagree with a reason and an alternative; hold the position
+  unless he gives new information.
+- No em dashes anywhere, no filler, no "Great question" or "Absolutely".
+- Don't make him the bottleneck: decide everything inside Claude's decision rights and log it; ask only
+  about his decision rights, one plain question with a recommended answer, also added to needsPatrick.
 
 ## Conventions
 - TypeScript, strict. Domain logic is pure functions in src/domain with Vitest tests.
 - Philippine mobile numbers are stored as 639XXXXXXXXX.
 - Time zone: Asia/Manila for all scheduling and quiet hours.
 - User-facing copy: no em dashes.
-- Commands: `npm test`, `npm run typecheck`.
+- UI follows design/README.md. Colors, type, spacing and radii come only from design/tokens.css; brand color is Revisit Green.
+- Commands: `npm test`, `npm run typecheck`, `npm run status` (regenerates docs/STATUS.md and status/*.csv).
