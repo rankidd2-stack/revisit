@@ -128,6 +128,8 @@ export interface ContentCheckOptions {
   nameTreatmentsAllowed: boolean;
   vertical?: "dental" | "vet" | "aesthetic" | "other";
   sensitiveTerms?: string[];   // clinic-specific words; the send pipeline adds the clinic's service categories for human clinics
+  /** Routine visit words may be named (default true). Off for texts about a dependent. */
+  allowVisitWords?: boolean;
 }
 
 // Human treatments are health data under the DPA, so they stay off lock screens by default.
@@ -155,6 +157,36 @@ export function isAllowedVisitTerm(term: string): boolean {
   return ALLOWED_VISIT_TERM.test(term.trim().replace(/\s+/g, " "));
 }
 
+/**
+ * Text as the treatment matcher sees it: lowercase, invisible characters dropped, every hyphen,
+ * dash and whitespace run turned into one space, and check-up/checkup/check up spelled one way.
+ * So "deep-cleaning", "deep  cleaning" and a line break between the words all match "deep cleaning".
+ */
+function forMatching(s: string): string {
+  return s.toLowerCase()
+    .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, "")
+    .replace(/[-\u2010-\u2015\u2212]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\bcheck ?ups?\b/g, "checkup")
+    .trim();
+}
+
+// Words that say nothing on their own, so they are never blocked by themselves.
+const PLAIN_WORDS = new Set(["cleaning", "cleanings", "checkup", "checkups", "consultation", "consultations",
+  "dental", "teeth", "tooth", "general", "routine", "regular", "annual", "and", "for", "the", "with", "visit", "visits",
+  "appointment", "session", "follow", "due", "care", "service", "services", "new", "first", "adult", "kids", "child", "patient"]);
+const ROUTINE_WORD = /\b(?:cleanings?|checkups?|consultations?)\b/;
+
+/**
+ * A clinic category built on a routine word ("Deep cleaning", "HIV consultation") also blocks its
+ * other words on their own, so "consultation for HIV" or a split phrase can't slip past. Without
+ * the allowlist (texts about a dependent) the routine word itself blocks too.
+ */
+function extraWords(term: string, allowVisitWords: boolean): string[] {
+  if (!ROUTINE_WORD.test(term)) return [];
+  return term.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && (!PLAIN_WORDS.has(w) || (!allowVisitWords && ROUTINE_WORD.test(w))));
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function checkContent(body: string, opts: ContentCheckOptions): ContentIssue[] {
@@ -177,10 +209,12 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
     const human = opts.vertical !== "vet";
     const terms = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(opts.sensitiveTerms ?? [])];
     const roots = new Set(human ? FILIPINO_ROOTS : []);
-    const blocked = terms.map((x) => x.trim().toLowerCase()).filter((x) => x && !isAllowedVisitTerm(x));
-    for (const t of new Set([...blocked, ...roots])) {
+    const allowVisitWords = opts.allowVisitWords ?? true;
+    const blocked = terms.map(forMatching).filter((x) => x && !(allowVisitWords && isAllowedVisitTerm(x)));
+    const text = forMatching(body);
+    for (const t of new Set([...blocked, ...blocked.flatMap((t) => extraWords(t, allowVisitWords)), ...roots])) {
       const re = roots.has(t) ? new RegExp(escapeRe(t), "i") : new RegExp(`\\b${escapeRe(t)}`, "i");
-      if (re.test(body)) {
+      if (re.test(text)) {
         issues.push({ code: "names_treatment", message: `"${t}" names a treatment; default texts must not (lock-screen privacy).` });
       }
     }

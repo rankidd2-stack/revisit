@@ -54,7 +54,7 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Patrick: "cleaning" and "check-up" are allowed in default patient texts. "Consultation" added to the same allowlist on Patrick's instruction.
 - Built as an explicit allowlist in src/domain/sms.ts (`ALLOWED_VISIT_WORDS`, `isAllowedVisitTerm`). A clinic service category whose name is only one of these words, optionally after a generic qualifier (dental, teeth, tooth, general, routine, regular, annual), no longer blocks a default text. Plurals and "checkup" / "check up" spellings are covered.
 - Still blocked: categories with anything more ("Cleaning and whitening", "Deep cleaning", "Ortho consultation", "Implant check-up"), and every word on the default treatment list, even in the same text as an allowed word.
-- Applies to texts about dependents too. The open legal check on dependent texts (DPA s.13) still stands; if counsel says otherwise, dependent texts drop the allowlist.
+- Not for texts about a dependent: those stay fully strict until the DPA s.13 legal check (corrected after compliance-guard; an earlier draft of this entry applied it to dependents, which Patrick never decided).
 - Not covered: "linis" (Filipino for cleaning). It is not on any default list, so it only blocks if a clinic names a category "Linis". The allowlist is English only, as instructed; adding Filipino visit words is a small follow-up if Patrick wants it.
 
 ## 2026-10-30 -- Database wiring 1: send-gate inputs from Postgres (Claude)
@@ -67,4 +67,13 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Clinics whose time zone is not Asia/Manila are refused: the gate's time math is Manila-only. Handled by the Philippines market pack milestone later.
 - Reviewer pass 4 fixes: timestamps read as epoch milliseconds and unreadable ones throw (no NaN can pass a check); migration 002 refuses infinite times, bounds the staleness threshold to 1-72 hours (a clinic can tighten the pause, never switch it off), and fixes the format of consent snapshots; a tie between a good and a failed sync reads as failed.
 - DEFERRED to the send pipeline milestone (Phase 3): lock the contact and re-check caps in the same transaction as the send; a maximum lateness for scheduled campaigns; a stop click also appends a linked opt-out; one combined loader so clinic and contact can't be mixed. Wiring 2 must never write consent rows from an import.
+
+## 2026-10-30 -- Reviewer pass 5 and compliance pass 3
+- FIXED (blocker R40): the allowlist removed the old catch on categories like "Deep cleaning". The treatment matcher now reads text with hyphens, dashes, line breaks and repeated spaces as one space, drops invisible characters, and treats check-up/checkup/check up as one word. A category built on a routine word also blocks its other words alone ("HIV consultation" blocks "HIV"), except plain words like "and" or "visit".
+- FIXED (G13): texts about a dependent get no allowlist; a "Dental check-up" category blocks the bare word "check-up" in them.
+- FIXED: an opt-out row must carry a number or email snapshot; emails are stored trimmed in contacts, mutes and snapshots; sync ties read as failed in syncHealth itself; schema tests load every migration.
+- R36 re-graded to should-fix and made a condition for the send pipeline milestone. Disagreed with one part: the reviewer said sends has no unique event key; it does (`unique (clinic_id, contact_id, event_key)` in 001).
+- OPEN for Patrick: allowlist scope (aesthetic and other clinics; Filipino words like linis; dependents after the legal check).
+- OPEN, Phase 4 (G9): privacy notice, DPA template and erasure reply must say an erased person's opt-out is kept as a minimal do-not-contact record, with a retention period. Folded into the pending legal consult.
+- OPEN, Wiring 2 (G11): imports never write consent rows; test that an import after erasure and opt-out leaves marketing off.
 

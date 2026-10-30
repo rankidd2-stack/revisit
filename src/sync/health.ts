@@ -12,7 +12,9 @@ export type SyncHealth =
  * clinic's threshold (default 72 hours). Locked decision 10.
  */
 export function syncHealth(runs: SyncRun[], now: Date, staleAfterHours = 72): SyncHealth {
-  const finished = runs.filter((r) => r.finishedAt).sort((a, b) => b.finishedAt!.getTime() - a.finishedAt!.getTime());
+  // Newest first; on a tie a failed run sorts first, so a tie never reads as healthy.
+  const finished = runs.filter((r) => r.finishedAt)
+    .sort((a, b) => b.finishedAt!.getTime() - a.finishedAt!.getTime() || Number(a.ok === true) - Number(b.ok === true));
   // An unreadable time can't prove freshness; NaN would slip past every age comparison below.
   if (finished.some((r) => Number.isNaN(r.finishedAt!.getTime()))) return { healthy: false, reason: "clock_skew", lastOkAt: null };
   const lastOk = finished.find((r) => r.ok === true);

@@ -267,3 +267,38 @@ describe("routine visit words (Patrick, 2026-10-30)", () => {
     expect(dental("Hi Ana, your check-up and x-ray are due.", ["Dental check-up"])).toContain("names_treatment");
   });
 });
+
+describe("reviewer pass 5: the allowlist can't hide a treatment", () => {
+  const dental = (body: string, sensitiveTerms: string[], allowVisitWords?: boolean) =>
+    checkContent(body, { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false, sensitiveTerms, allowVisitWords }).map((i) => i.code);
+
+  it("spacing, hyphens, line breaks and invisible characters don't split a blocked category", () => {
+    const cats = ["Cleaning", "Deep cleaning"];
+    for (const body of ["Your deep-cleaning is due", "Your deep  cleaning is due", "Your deep\ncleaning is due",
+      "Your deep\u2010cleaning is due", "Your deep\u200bcleaning is due", "Your DEEP CLEANING is due"]) {
+      expect(dental(body, cats)).toContain("names_treatment");
+    }
+    expect(dental("Your cleaning is due", cats)).toEqual([]);
+  });
+  it("the other words of a category built on a routine word block on their own", () => {
+    expect(dental("Your consultation for HIV is due", ["Consultation", "HIV consultation"])).toContain("names_treatment");
+    expect(dental("Your HIV consultation is due", ["HIV  consultation"])).toContain("names_treatment");
+    expect(dental("Cleaning, the deep kind, is due", ["Deep cleaning"])).toContain("names_treatment");
+    // ...but plain words in such a category ("and", "visit") never block a text by themselves.
+    expect(dental("Your cleaning is due. See you at your visit", ["Cleaning visit", "Cleaning and polish"])).toEqual([]);
+  });
+  it("check-up, checkup and check up are one word for matching", () => {
+    for (const body of ["Your prenatal checkup is due", "Your prenatal check up is due", "Your prenatal check-up is due"]) {
+      expect(dental(body, ["Prenatal check-up"])).toContain("names_treatment");
+    }
+  });
+  it("texts about a dependent don't get the allowlist", () => {
+    expect(dental("Mika's check-up is due", ["Dental check-up"], false)).toContain("names_treatment");
+    expect(dental("Mika's checkup is due", ["Teeth cleaning", "Check up"], false)).toContain("names_treatment");
+    expect(dental("Mika's check-up is due", ["Dental check-up"])).toEqual([]);
+  });
+  it("default treatment terms still match through the same normalisation", () => {
+    for (const body of ["Your x-ray is due", "Your x ray is due", "Your root\ncanal is due"]) expect(dental(body, [])).toContain("names_treatment");
+  });
+});
+

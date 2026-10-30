@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { asDate } from "../src/db/client.js";
 import { loadCampaignApproval, loadClinicContext, loadContact, loadRecallRuleApproval } from "../src/db/send-context.js";
 import { prepareSms } from "../src/send/pipeline.js";
@@ -19,7 +19,8 @@ const recallTemplate = "Hi {first_name}, {pet_name} is due for a visit.";
 let clinicA: string, clinicB: string, ana: string, bantay: string, rule: string;
 
 beforeAll(async () => {
-  for (const m of ["001_init.sql", "002_gate_inputs.sql"]) await db.exec(readFileSync(new URL(`../db/migrations/${m}`, import.meta.url), "utf8"));
+  const dir = new URL("../db/migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.exec(readFileSync(new URL(f, dir), "utf8"));
   clinicA = await id(`insert into clinics (name, vertical, sender_name, sender_name_status, reply_phone, marketing_cap_per_30d, sync_stale_after_hours)
                       values ('Paw Care', 'vet', 'PAWCARE', 'approved', '0917 555 0000', 3, 24) returning id`);
   clinicB = await id(`insert into clinics (name, vertical, sender_name, sender_name_status) values ('Smile', 'dental', 'SMILE', 'pending') returning id`);
@@ -309,15 +310,18 @@ describe("gate inputs must be real values (reviewer pass 4)", () => {
   });
 
   it("the database refuses infinite times, an unbounded staleness pause and odd snapshot formats", async () => {
-    const r = (sql: string, params: unknown[] = []) => expect(db.query(sql, params)).rejects.toThrow();
-    await r(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', 'infinity', true)`, [clinicA]);
-    await r(`insert into consent_events (clinic_id, purpose, granted, channel, text_version, captured_by, recorded_at) values ($1, 'marketing', true, 'qr', 'v1', 'patient', '-infinity')`, [clinicA]);
-    await r(`insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, sent_at) values ($1, $2, 'reminder:x:24h', 'reminder', 'sms', 'a', 'infinity')`, [clinicA, ana]);
-    await r(`insert into campaigns (clinic_id, name, body, announcement_type, scheduled_for) values ($1, 'N', 'B', 'clinic_news', 'infinity')`, [clinicA]);
-    await r(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at) select $1, $2, id, 'infinity' from service_categories where clinic_id = $1 limit 1`, [clinicA, bantay]);
-    for (const h of [0, 73, 100000]) await r(`update clinics set sync_stale_after_hours = $2 where id = $1`, [clinicA, h]);
-    await r(`insert into consent_events (clinic_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, '09171234567', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
-    await r(`insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, 'Eli@Example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
-    await r(`insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, ' eli@example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    const r = (name: string, sql: string, params: unknown[] = []) => expect(db.query(sql, params)).rejects.toThrow(name);
+    await r("sync_runs_finished_finite", `insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', 'infinity', true)`, [clinicA]);
+    await r("consent_recorded_finite", `insert into consent_events (clinic_id, purpose, granted, channel, text_version, captured_by, recorded_at) values ($1, 'marketing', true, 'qr', 'v1', 'patient', '-infinity')`, [clinicA]);
+    await r("sends_sent_finite", `insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, sent_at) values ($1, $2, 'reminder:x:24h', 'reminder', 'sms', 'a', 'infinity')`, [clinicA, ana]);
+    await r("campaigns_scheduled_finite", `insert into campaigns (clinic_id, name, body, announcement_type, scheduled_for) values ($1, 'N', 'B', 'clinic_news', 'infinity')`, [clinicA]);
+    await r("appointments_starts_finite", `insert into appointments (clinic_id, asset_id, service_category_id, starts_at) select $1, $2, id, 'infinity' from service_categories where clinic_id = $1 limit 1`, [clinicA, bantay]);
+    for (const h of [0, 73, 100000]) await r("sync_stale_bounds", `update clinics set sync_stale_after_hours = $2 where id = $1`, [clinicA, h]);
+    await r("consent_mobile_snapshot_format", `insert into consent_events (clinic_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, '09171234567', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r("consent_email_snapshot_format", `insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, 'Eli@Example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r("consent_email_snapshot_format", `insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, ' eli@example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r("consent_optout_has_snapshot", `insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by) values ($1, $2, 'service', false, 'staff', 'v1', 's')`, [clinicA, ana]);
+    await r("contacts_email_trimmed", `insert into contacts (clinic_id, full_name, email) values ($1, 'Pat', ' pat@example.com')`, [clinicA]);
+    await r("mutes_value_trimmed", `insert into mutes (clinic_id, kind, value, reason) values ($1, 'email', 'pat@example.com ', 'staff')`, [clinicA]);
   });
 });

@@ -54,7 +54,19 @@ R32,reviewer,should-fix,Privacy,"Consent snapshots had no format check, so an er
 R33,reviewer,should-fix,Decision log,Loader design choices were not logged,fixed
 R34,reviewer,nit,Sync,A failed and a good sync run at the same moment could read as healthy,fixed
 R35,reviewer,nit,Send pipeline,A scheduled campaign stays approved long after its time if the scheduler was down,deferred
-R36,reviewer,nit,Send pipeline,Caps and same-day rules are not enforced under concurrent senders; lock the contact and re-check at send time,deferred
+R36,reviewer,should-fix,Send pipeline,Caps and same-day rules are not enforced under concurrent senders; lock the contact and re-check at send time. Required before the send pipeline milestone passes,deferred
 R37,reviewer,nit,Privacy,A stop that only writes a mute does not follow the person to a new number; also append a linked opt-out,deferred
 R38,reviewer,nit,Send gate inputs,"Loader results don't carry their clinic id, so a caller could mix clinics",deferred
 R39,reviewer,nit,Tests,Database wiring tests share one changing database and depend on order,deferred
+R40,reviewer,blocker,SMS rules,"Allowlist removed the old catch: deep-cleaning, split spacing or consultation for HIV reached patients",fixed
+R41,reviewer,should-fix,Tests,Allowlist tests used only exact category wording,fixed
+R42,reviewer,nit,Sync,Sync tie read as healthy when syncHealth was called directly,fixed
+R43,reviewer,nit,Privacy,Contact and mute emails were not required to be trimmed like snapshots,fixed
+R44,reviewer,nit,Tests,Constraint tests did not check which constraint refused the row,fixed
+R45,reviewer,nit,Tests,Schema tests loaded only the first migration,fixed
+R46,reviewer,nit,SMS rules,"Allowlist scope beyond dental, and linis, not tracked",open
+G9,compliance-guard,risk,Privacy,"Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period",open
+G10,compliance-guard,risk,Privacy,An opt-out without a number or email snapshot would vanish on erasure,fixed
+G11,compliance-guard,risk,Privacy,"Imports must never write consent rows, or a re-import could undo a stop",open
+G12,compliance-guard,risk,SMS rules,Allowlist covers aesthetic and other clinics; Patrick's reasons were dental,open
+G13,compliance-guard,risk,Privacy,Allowlist applied to texts about dependents without Patrick's decision,fixed

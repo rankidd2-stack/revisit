@@ -162,6 +162,8 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
     kind,
     vertical: clinic.vertical,
     nameTreatmentsAllowed: clinic.nameTreatmentsAllowed && !aboutSomeoneElse,
+    // The routine-word allowlist is off for dependents until the pending legal check (DPA s.13).
+    allowVisitWords: !aboutSomeoneElse,
     sensitiveTerms: human ? clinic.serviceCategories : [],
   });
   if (issues.length) return { ok: false, reason: "content", issues };

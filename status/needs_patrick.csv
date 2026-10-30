@@ -2,5 +2,6 @@ priority,item,recommendation
 1,Create a Semaphore account and share an API key,Prepaid credits only; no real sends until the pilot clinic approves
 2,Book 3 dental or vet clinic meetings for the prototype demo,Target the week after the prototype ships
 3,Register the business (DTI) and send one email to DTI Pampanga on free events and announcements,Claude drafts the email
-4,"Legal check: dental testimonials, and texting a family number about a dependent (DPA s.13)",One consult covers both. Testimonials stay off for dental and texts never name treatments for dependents until then
+4,"Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), and keeping an opt-out after an erasure request","One consult covers all three. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up), and erased opt-outs are kept"
 5,Brand name,"Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains"
+6,"Scope of the cleaning / check-up / consultation allowlist: aesthetic and other clinics, and Filipino words (linis, konsulta)",Yes to all human clinics (the sender name already says more than the word) and yes to linis and konsulta. Dependents stay strict until the legal consult

@@ -117,6 +117,9 @@ describe("sync health", () => {
     expect(syncHealth([{ finishedAt: h(5), ok: true }, { finishedAt: h(1), ok: null }], now)).toMatchObject({ reason: "last_run_failed" });
     expect(syncHealth([], now)).toMatchObject({ reason: "never_synced" });
     expect(syncHealth([{ finishedAt: h(1), ok: true }, { finishedAt: new Date(NaN), ok: true }], now)).toMatchObject({ healthy: false, reason: "clock_skew" });
+    // A good and a failed run at the same moment read as failed, in either order.
+    expect(syncHealth([{ finishedAt: h(1), ok: true }, { finishedAt: h(1), ok: false }], now)).toMatchObject({ reason: "last_run_failed" });
+    expect(syncHealth([{ finishedAt: h(1), ok: false }, { finishedAt: h(1), ok: true }], now)).toMatchObject({ reason: "last_run_failed" });
   });
 });
 
@@ -224,6 +227,8 @@ describe("send pipeline", () => {
       expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template }) }).ok).toBe(true);
     }
     expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your root canal visit is due." }) })).toMatchObject({ ok: false, reason: "content" });
+    // Texts about a dependent stay strict until the legal check (DPA s.13).
+    expect(prep({ clinic: dental, subject: "dependent", approval: auto("recall-rule:r1", { template: "Hi {first_name}, Mika's dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
   });
   it("checks clinic-entered footer links for shorteners", () => {
     expect(prep({ clinic: { ...clinic, replyPhone: null, messengerUrl: "https://bit.ly/x" } })).toMatchObject({ ok: false, reason: "content" });

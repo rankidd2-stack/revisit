@@ -176,12 +176,16 @@
       "recommendation": "Claude drafts the email"
     },
     {
-      "item": "Legal check: dental testimonials, and texting a family number about a dependent (DPA s.13)",
-      "recommendation": "One consult covers both. Testimonials stay off for dental and texts never name treatments for dependents until then"
+      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), and keeping an opt-out after an erasure request",
+      "recommendation": "One consult covers all three. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up), and erased opt-outs are kept"
     },
     {
       "item": "Brand name",
       "recommendation": "Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains"
+    },
+    {
+      "item": "Scope of the cleaning / check-up / consultation allowlist: aesthetic and other clinics, and Filipino words (linis, konsulta)",
+      "recommendation": "Yes to all human clinics (the sender name already says more than the word) and yes to linis and konsulta. Dependents stay strict until the legal consult"
     }
   ],
   "flags": []
