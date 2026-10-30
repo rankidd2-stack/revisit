@@ -7,6 +7,7 @@
       "id": 0,
       "name": "Plan and setup",
       "state": "done",
+      "percentComplete": 100,
       "milestones": [
         {
           "name": "Product spec, features, add-on backlog",
@@ -26,6 +27,7 @@
       "id": 1,
       "name": "Foundation",
       "state": "in_progress",
+      "percentComplete": 56,
       "milestones": [
         {
           "name": "Database schema: contacts, assets, consent ledger, mute list, campaign log",
@@ -49,7 +51,8 @@
         },
         {
           "name": "Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",
-          "state": "in_progress"
+          "state": "in_progress",
+          "note": "Parked on branch claude/eager-turing-bwpp43 (not merged). Open: reviewer round 3 blocker R47 and should-fixes R48-R52; compliance-guard has not yet checked the round 3 changes."
         },
         {
           "name": "Database wiring 2: write imports and sync runs to Postgres; muted never re-added, clinic-owned status kept",
@@ -69,6 +72,7 @@
       "id": 2,
       "name": "AI console prototype (sales demo)",
       "state": "todo",
+      "percentComplete": 0,
       "milestones": [
         {
           "name": "Clickable console: daily autopilot queue",
@@ -92,6 +96,7 @@
       "id": 3,
       "name": "Sending live",
       "state": "todo",
+      "percentComplete": 0,
       "milestones": [
         {
           "name": "Send pipeline with campaign log writes",
@@ -115,6 +120,7 @@
       "id": 4,
       "name": "Paid pilot",
       "state": "todo",
+      "percentComplete": 0,
       "milestones": [
         {
           "name": "3 clinics paying P1,000 a month",
@@ -138,6 +144,7 @@
       "id": 5,
       "name": "Growth",
       "state": "todo",
+      "percentComplete": 0,
       "milestones": [
         {
           "name": "Announcement builder",
@@ -159,7 +166,7 @@
     }
   ],
   "tests": {
-    "passing": 116,
+    "passing": 159,
     "failing": 0
   },
   "needsPatrick": [
@@ -186,6 +193,10 @@
     {
       "item": "Scope of the cleaning / check-up / consultation allowlist: aesthetic and other clinics, and Filipino words (linis, konsulta)",
       "recommendation": "Yes to all human clinics (the sender name already says more than the word) and yes to linis and konsulta. Dependents stay strict until the legal consult"
+    },
+    {
+      "item": "Parked: allowlist blocker on branch claude/eager-turing-bwpp43 (database wiring 1 plus the cleaning/check-up allowlist). OK for the next run to fix it and finish the branch?",
+      "recommendation": "Yes. The fix is small (keep 2-letter words, match category words as whole words) and nothing sends to patients yet. No decision needed from you beyond the open allowlist scope question."
     }
   ],
   "flags": []

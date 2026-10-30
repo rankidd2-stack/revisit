@@ -70,3 +70,14 @@ G10,compliance-guard,risk,Privacy,An opt-out without a number or email snapshot 
 G11,compliance-guard,risk,Privacy,"Imports must never write consent rows, or a re-import could undo a stop",open
 G12,compliance-guard,risk,SMS rules,Allowlist covers aesthetic and other clinics; Patrick's reasons were dental,open
 G13,compliance-guard,risk,Privacy,Allowlist applied to texts about dependents without Patrick's decision,fixed
+R47,reviewer,blocker,SMS rules,"Words under 3 letters were dropped from blocked categories, so TB, OB or ED check-up texts reached patients",open
+R48,reviewer,should-fix,SMS rules,Extra category words match as prefixes and over-block (STI blocks still; a doctor's name blocks a patient's first name),open
+R49,reviewer,should-fix,SMS rules,A hyphen inside the sensitive word (pre-natal vs Prenatal) still splits it,open
+R50,reviewer,should-fix,Privacy,Dependent strictness relies on the caller passing subject; default is self,open
+R51,reviewer,should-fix,SMS rules,Multi-word categories without a routine word (HIV test) match only as the exact phrase; existed before the allowlist,open
+R52,reviewer,should-fix,SMS rules,A category starting with punctuation can never match,open
+R53,reviewer,nit,SMS rules,Some invisible Unicode characters are not stripped,open
+R54,reviewer,nit,SMS rules,Word split cuts non-ASCII letters,open
+R55,reviewer,nit,SMS rules,A category made only of routine words joined by and blocks its own natural text,open
+R56,reviewer,nit,SMS rules,"Block message names the matched word, not the clinic category it came from",open
+R57,reviewer,nit,Database,Migration 002 checks fail on an existing database with untrimmed emails; add NOT VALID then validate if one exists,open

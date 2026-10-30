@@ -7,7 +7,10 @@ phase_id,phase,milestone,state
 1,1. Foundation,"Recall engine: due dates, 4-step sequence, stop on booking",done
 1,1. Foundation,"CSV import: PH numbers and dates, muted numbers never re-added",done
 1,1. Foundation,Semaphore SMS client and SMS cost counter,done
-1,1. Foundation,Database wiring and Google Sheet sync,todo
+1,1. Foundation,"Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",in_progress
+1,1. Foundation,"Database wiring 2: write imports and sync runs to Postgres; muted never re-added, clinic-owned status kept",todo
+1,1. Foundation,Google Sheet sync: scheduled pull into the import path; failed or stale sync pauses sends and alerts the clinic,todo
+1,1. Foundation,"Philippines market pack: +63 numbers, Asia/Manila, Semaphore and word lists behind one module",todo
 2,2. AI console prototype (sales demo),Clickable console: daily autopilot queue,todo
 2,2. AI console prototype (sales demo),"Goal-based campaign: type a goal, AI drafts and picks recipients",todo
 2,2. AI console prototype (sales demo),Photo or spreadsheet to patient list,todo

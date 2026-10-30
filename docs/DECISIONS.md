@@ -4,6 +4,7 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 
 | Date | Decision | By | Reversible? |
 | --- | --- | --- | --- |
+| 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
 | 2026-10-30 | "Cleaning", "check-up" and "consultation" allowed in default patient texts, including when they are a clinic's own service category names (explicit English allowlist; a generic qualifier like "Dental" is fine, anything more still blocks). Default treatment list unchanged | Patrick | Yes |
 | 2026-10-30 | Compliance pass 1 fixes: single send pipeline (texts cannot skip checks), email mutes, append-only consent ledger, sender-name approval, service text mapped to clinic categories, dental testimonials blocked in schema, wider DTI and claim wording checks | Claude (from compliance-guard) | Yes |
 | 2026-10-30 | Vets may name pet care (vaccine, deworming) in texts; human clinics may not name treatments by default. Overrides compliance-guard's suggestion to block vet terms: pet records are not human health data | Claude | Yes |
@@ -48,7 +49,6 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Stop-link domain in tests is now revisit.example (placeholder until a real domain is bought).
 - Kept on purpose: the Tagalog/Taglish wording checks (bunot, pasta, hindi masakit, etc.). They are compliance filters for PH texts, not branding.
 - Next (Claude decides, code structure): move PH specifics (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists) into a "Philippines market pack" during database wiring, so the core is country-neutral.
-| 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
 
 ## 2026-10-30 -- Routine visit words allowed (Patrick)
 - Patrick: "cleaning" and "check-up" are allowed in default patient texts. "Consultation" added to the same allowlist on Patrick's instruction.
@@ -77,3 +77,11 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - OPEN, Phase 4 (G9): privacy notice, DPA template and erasure reply must say an erased person's opt-out is kept as a minimal do-not-contact record, with a retention period. Folded into the pending legal consult.
 - OPEN, Wiring 2 (G11): imports never write consent rows; test that an import after erasure and opt-out leaves marketing off.
 
+## 2026-10-30 -- Reviewer pass 6 (round 3): parked
+- Reviewer round 3 on branch claude/eager-turing-bwpp43: FAIL. Three review rounds used, so per docs/AUTOPILOT.md the branch is parked (pull request plus a needsPatrick entry), not merged. "Database wiring 1" stays in progress.
+- OPEN (blocker R47): category words under 3 letters are dropped, so a category like "TB check-up", "OB consultation" or "ED check-up" lets "TB", "OB" or "ED" reach patients. Fix: keep short words and match category words as whole words.
+- OPEN (should-fix): R48 extra category words match as prefixes and over-block (a doctor's name can block a patient's first name); R49 a hyphen inside a sensitive word ("pre-natal" vs "Prenatal") still splits it; R50 dependent strictness relies on the caller passing the subject (default is self); R51 multi-word categories without a routine word ("HIV test") match only as the exact phrase (older than the allowlist); R52 a category starting with punctuation never matches.
+- OPEN (nits R53-R57): some invisible characters not stripped; word split cuts non-ASCII letters; a category made only of routine words joined by "and" blocks its own text; block message names the word, not the category; migration 002 checks could fail on an existing database with untrimmed emails (add NOT VALID, then validate).
+- compliance-guard pass 3 (round 2 diff): pass with risks G9, G11, G12 open. It has not seen the round 3 changes; run it again after the R47 fix.
+- Tests on the branch: 159 passing, 0 failing; typecheck clean.
+- Next run: finish this branch first (fix R47, R48-R52, reviewer and compliance-guard again), then merge. The allowlist scope question (G12, R46) stays with Patrick.
