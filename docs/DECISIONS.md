@@ -47,3 +47,4 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Stop-link domain in tests is now revisit.example (placeholder until a real domain is bought).
 - Kept on purpose: the Tagalog/Taglish wording checks (bunot, pasta, hindi masakit, etc.). They are compliance filters for PH texts, not branding.
 - Next (Claude decides, code structure): move PH specifics (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists) into a "Philippines market pack" during database wiring, so the core is country-neutral.
+| 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |

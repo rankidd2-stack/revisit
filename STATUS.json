@@ -152,10 +152,6 @@
   },
   "needsPatrick": [
     {
-      "item": "Where should the code live?",
-      "recommendation": "A private GitHub repo you own, so Claude Code on your computer and here work on the same code"
-    },
-    {
       "item": "Create a Semaphore account and share an API key",
       "recommendation": "Prepaid credits only; no real sends until the pilot clinic approves"
     },
