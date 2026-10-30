@@ -168,3 +168,15 @@ describe("sms", () => {
     expect(codes).toEqual(expect.arrayContaining(["starts_with_test", "url_shortener", "medical_claim", "names_treatment"]));
   });
 });
+
+describe("reviewer pass 2: content", () => {
+  it("catches Filipino roots inside affixed words, and orthodontic", () => {
+    for (const b of ["Pwede na po magpabunot", "Kailan po kayo pinapastahan", "Your orthodontic visit"]) {
+      expect(checkContent(b, { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false }).map((i) => i.code)).toContain("names_treatment");
+    }
+  });
+  it("catches bitly.com and keeps peso amounts in cheap GSM-7", () => {
+    expect(checkContent("see bitly.com/x", { kind: "recall", nameTreatmentsAllowed: true }).map((i) => i.code)).toContain("url_shortener");
+    expect(measureSms(normalizeForSms("Fee is ₱500")).encoding).toBe("GSM-7");
+  });
+});

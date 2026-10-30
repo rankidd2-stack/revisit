@@ -128,12 +128,11 @@ const contact = {
   consent: { service: true, marketing: true }, lastVisitOn: "2026-09-01", pastSends: [],
 };
 const tenAm = new Date("2026-10-30T02:00:00Z");
-const req = { kind: "recall" as const, campaignId: null, automated: true, now: tenAm };
 const recallEvent = { type: "recall" as const, assetId: "a1", ruleId: "r1", dueOn: "2026-10-30", stepOffsetDays: 0 };
 const prep = (over: Partial<Parameters<typeof prepareSms>[0]> = {}) =>
   prepareSms({
-    clinic, contact, policy: { ...DEFAULT_POLICY, syncHealthy: true }, request: req,
-    approval: { type: "automation", automationId: "r1", approvedBy: "admin@pawcare" },
+    clinic, contact, policy: { ...DEFAULT_POLICY, syncHealthy: true }, now: tenAm,
+    approval: { type: "automation", automationId: "recall-rule:r1", approvedBy: "admin@pawcare" },
     event: recallEvent, sentEventKeys: new Set(),
     body: "Hi Ana, Bantay is due for his rabies vaccine.", stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
     ...over,
@@ -150,7 +149,7 @@ describe("send pipeline", () => {
   });
   it("refuses anything without a human approval", () => {
     expect(prep({ approval: null })).toMatchObject({ ok: false, reason: "not_approved" });
-    expect(prep({ approval: { type: "automation", automationId: "r1", approvedBy: " " } })).toMatchObject({ ok: false, reason: "not_approved" });
+    expect(prep({ approval: { type: "automation", automationId: "recall-rule:r1", approvedBy: " " } })).toMatchObject({ ok: false, reason: "not_approved" });
     const campaign = { type: "campaign" as const, campaignId: "c1" };
     expect(prep({ event: campaign, approval: { type: "campaign", campaignId: "c2", approvedBy: "x" } })).toMatchObject({ ok: false, reason: "not_approved" });
   });
@@ -172,8 +171,32 @@ describe("send pipeline", () => {
   });
   it("blocks promo wording in marketing texts", () => {
     const event = { type: "campaign" as const, campaignId: "c1" };
-    const r = prep({ event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x" }, request: { ...req, kind: "marketing", campaignId: "c1" }, body: "Use code PAW100 for P100 off grooming!" });
+    const r = prep({ event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x" }, body: "Use code PAW100 for P100 off grooming!" });
     expect(r).toMatchObject({ ok: false, reason: "content" });
+  });
+  it("a campaign send is always gated as marketing, whatever the caller intends", () => {
+    // Reviewer probe: promo body, no marketing consent, visit yesterday. Must be blocked.
+    const event = { type: "campaign" as const, campaignId: "c1" };
+    const approval = { type: "campaign" as const, campaignId: "c1", approvedBy: "x" };
+    const noConsent = { ...contact, consent: { service: true }, lastVisitOn: "2026-10-29" };
+    expect(prep({ event, approval, contact: noConsent, body: "Clinic news" })).toMatchObject({ ok: false, reason: "no_marketing_consent" });
+    const r = prep({ event, approval, body: "We now offer Saturday hours" });
+    expect(r.ok && r.sms.kind).toBe("marketing");
+  });
+  it("an approval only covers its own event", () => {
+    expect(prep({ approval: { type: "campaign", campaignId: "unrelated", approvedBy: "x" } })).toMatchObject({ reason: "not_approved" });
+    expect(prep({ approval: { type: "automation", automationId: "recall-rule:other", approvedBy: "x" } })).toMatchObject({ reason: "not_approved" });
+    expect(prep({ approval: { type: "automation", automationId: "reminders", approvedBy: "x" } })).toMatchObject({ reason: "not_approved" });
+  });
+  it("only a person pressing send can go ahead while sync is stale", () => {
+    const stale = { ...DEFAULT_POLICY, syncHealthy: false };
+    const event = { type: "campaign" as const, campaignId: "c1" };
+    expect(prep({ policy: stale })).toMatchObject({ reason: "sync_stale" });
+    expect(prep({ policy: stale, event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x" }, body: "Clinic news" })).toMatchObject({ reason: "sync_stale" });
+    expect(prep({ policy: stale, event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x", sendingNow: true }, body: "Clinic news" }).ok).toBe(true);
+  });
+  it("checks clinic-entered footer links for shorteners", () => {
+    expect(prep({ clinic: { ...clinic, replyPhone: null, messengerUrl: "https://bit.ly/x" } })).toMatchObject({ ok: false, reason: "content" });
   });
 });
 
@@ -191,7 +214,7 @@ describe("Semaphore client", () => {
     expect(body.get("message")).toContain("Stop msgs:");
   });
   it("refuses a hand-built message that skipped the pipeline", async () => {
-    const forged = { mobile: "639171234567", body: "Hello", senderName: "PAWCARE", segments: 1, eventKey: "x" } as PreparedSms;
+    const forged = { kind: "recall", mobile: "639171234567", body: "Hello", senderName: "PAWCARE", segments: 1, eventKey: "x" } as PreparedSms;
     await expect(new SemaphoreClient("k", fetchReturning([])).send([forged])).rejects.toThrow(/prepareSms/);
   });
   it("reports error objects and failed messages instead of dropping them", async () => {
@@ -210,5 +233,40 @@ describe("Semaphore client", () => {
   });
   it("batches recipients by 1,000", () => {
     expect(batch(Array.from({ length: 2500 }, (_, i) => i)).map((b) => b.length)).toEqual([1000, 1000, 500]);
+  });
+});
+
+describe("reviewer pass 2: import edge cases", () => {
+  const opts = { muted: { mobiles: new Set<string>(), emails: new Set<string>() }, serviceCategories: ["Check-up", "Vaccine"], dateBounds: { min: "2000-01-01", max: "2026-10-30" } };
+
+  it("a stray mid-field quote never swallows later rows", () => {
+    const rows = parseCsvRows('name,mobile\nAna "Bing" Cruz,09171234567\nBen,09181234567\nCar "x,09191234567\n');
+    expect(rows.map((r) => r.cells[0])).toEqual(["name", 'Ana "Bing" Cruz', "Ben", 'Car "x']);
+  });
+  it("family members sharing one number become dependents, not dropped", () => {
+    const r = importCsv("name,mobile,service\nAna Cruz,09171234567,Check-up\nBen Cruz,09171234567,Check-up\n", opts);
+    expect(r.rows).toHaveLength(2);
+    expect(r.rows[1]).toMatchObject({ fullName: "Ana Cruz", assetLabel: "Ben Cruz", assetKind: "dependent" });
+    expect(r.dependentsGrouped).toBe(1);
+  });
+  it("one email never ends up on two contacts", () => {
+    const r = importCsv("name,mobile,email\nAna,09171234567,a@x.com\nAna,09181234567,a@x.com\n", opts);
+    expect(r.rows.filter((x) => x.email === "a@x.com")).toHaveLength(1);
+    expect(r.emailsDropped).toBe(1);
+  });
+  it("maps vet species wording onto the schema list", () => {
+    const r = importCsv("owner,patient,species,mobile\nAna,Bantay,Canine,09171234567\nAna,Mingming,Pusa,09171234567\nAna,Nemo,Fish,09171234567\n", opts);
+    expect(r.rows.map((x) => x.species)).toEqual(["dog", "cat", "other"]);
+    expect(r.rows.every((x) => x.assetKind === "pet")).toBe(true);
+  });
+  it("detects DD/MM files instead of misreading them", () => {
+    const r = importCsv("name,mobile,last visit\nAna,09171234567,05/06/2024\nBen,09181234567,25/06/2024\n", opts);
+    expect(r.dateOrder).toBe("DMY");
+    expect(r.rows.map((x) => x.lastVisitOn)).toEqual(["2024-06-05", "2024-06-25"]);
+    expect(importCsv("name,mobile,last visit\nAna,09171234567,05/06/2024\n", opts).rows[0]!.lastVisitOn).toBe("2024-05-06");
+  });
+  it("a sync that 'finished' in the future is not trusted", () => {
+    const now = new Date("2026-10-30T02:00:00Z");
+    expect(syncHealth([{ finishedAt: new Date(now.getTime() + 3600_000), ok: true }], now)).toMatchObject({ healthy: false, reason: "clock_skew" });
   });
 });

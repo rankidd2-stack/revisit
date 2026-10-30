@@ -4,8 +4,9 @@ export interface CsvRow { cells: string[]; line: number }
 
 /**
  * RFC 4180-style CSV parser: quoted fields, escaped quotes, CRLF or LF. Each row carries the
- * source line it started on. A file that ends inside a quote is rejected rather than silently
- * swallowing every row after the stray quote.
+ * source line it started on. A quote only opens a quoted field at the start of a field; a stray
+ * quote mid-field (Ana "Bing" Cruz) is kept as text, so it can never swallow the rows after it.
+ * A file that ends inside a quoted field is rejected.
  */
 export function parseCsvRows(text: string): CsvRow[] {
   const rows: CsvRow[] = [];
@@ -27,7 +28,7 @@ export function parseCsvRows(text: string): CsvRow[] {
       if (ch === '"' && src[i + 1] === '"') { field += '"'; i++; }
       else if (ch === '"') quoted = false;
       else field += ch;
-    } else if (ch === '"') quoted = true;
+    } else if (ch === '"' && field === "") quoted = true;
     else if (ch === ",") { row.push(field); field = ""; }
     else if (ch === "\n" || ch === "\r") {
       if (ch === "\r" && src[i + 1] === "\n") { i++; line++; }
@@ -54,7 +55,7 @@ const SYNONYMS: Record<TargetField, string[]> = {
   email: ["email", "e-mail", "email address"],
   external_ref: ["id", "patient id", "client id", "record no", "file no"],
   asset_label: ["pet", "pet name", "patient (pet)", "animal"],
-  species: ["species", "type", "breed type"],
+  species: ["species", "type", "animal type"],
   service_category: ["service", "procedure", "visit type", "treatment"],
   last_visit_on: ["last visit", "date", "visit date", "last visit date", "date of visit"],
 };
@@ -89,12 +90,14 @@ export interface DateBounds { min: string; max: string }   // inclusive, YYYY-MM
  * Rejects impossible dates (no rollover), and anything outside the bounds (future visits,
  * or older than the floor). Returns YYYY-MM-DD or null.
  */
-export function normalizeDate(raw: string | undefined, bounds?: DateBounds): string | null {
+export function normalizeDate(raw: string | undefined, bounds?: DateBounds, order: "MDY" | "DMY" = "MDY"): string | null {
   if (!raw) return null;
   const s = raw.trim().toLowerCase().replace(/\s+/g, " ");
   let y: number, mo: number, d: number, m: RegExpMatchArray | null;
   if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) { y = +m[1]!; mo = +m[2]!; d = +m[3]!; }
-  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) { mo = +m[1]!; d = +m[2]!; y = +m[3]!; }
+  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) {
+    [mo, d] = order === "DMY" ? [+m[2]!, +m[1]!] : [+m[1]!, +m[2]!]; y = +m[3]!;
+  }
   else if ((m = s.match(/^([a-z]+)\.? (\d{1,2}),? (\d{4})$/))) { mo = MONTHS.indexOf(m[1]!.slice(0, 3)) + 1; d = +m[2]!; y = +m[3]!; }
   else if ((m = s.match(/^(\d{1,2}) ([a-z]+)\.?,? (\d{4})$/))) { d = +m[1]!; mo = MONTHS.indexOf(m[2]!.slice(0, 3)) + 1; y = +m[3]!; }
   else return null;
@@ -106,6 +109,34 @@ export function normalizeDate(raw: string | undefined, bounds?: DateBounds): str
   return iso;
 }
 
+const SPECIES: [RegExp, "dog" | "cat" | "bird" | "rabbit"][] = [
+  [/^(dog|dogs|canine|k9|k-9|puppy|aso|tuta)$/i, "dog"],
+  [/^(cat|cats|feline|kitten|pusa|kuting)$/i, "cat"],
+  [/^(bird|avian|parrot|ibon)$/i, "bird"],
+  [/^(rabbit|bunny|kuneho)$/i, "rabbit"],
+];
+/** Maps clinic wording onto the schema's species list; anything else non-empty becomes "other". */
+export function normalizeSpecies(raw: string | undefined): "dog" | "cat" | "bird" | "rabbit" | "other" | null {
+  const v = raw?.trim();
+  if (!v) return null;
+  return SPECIES.find(([re]) => re.test(v))?.[1] ?? "other";
+}
+
+/**
+ * PH files are usually MM/DD, but some clinic systems export DD/MM. If any slash date in the
+ * column has a first part above 12 (and none has a second part above 12), the file is DD/MM.
+ */
+export function detectDateOrder(values: (string | undefined)[]): "MDY" | "DMY" {
+  let dayFirst = false, monthFirst = false;
+  for (const v of values) {
+    const m = v?.trim().match(/^(\d{1,2})\/(\d{1,2})\/\d{4}$/);
+    if (!m) continue;
+    if (+m[1]! > 12) dayFirst = true;
+    if (+m[2]! > 12) monthFirst = true;
+  }
+  return dayFirst && !monthFirst ? "DMY" : "MDY";
+}
+
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i;
 
 export interface ImportedRow {
@@ -114,7 +145,9 @@ export interface ImportedRow {
   email: string | null;
   externalRef: string | null;
   assetLabel: string | null;
-  species: string | null;
+  /** self = the contact; dependent = a family member sharing the contact's number; pet. */
+  assetKind: "self" | "dependent" | "pet";
+  species: "dog" | "cat" | "bird" | "rabbit" | "other" | null;
   serviceCategory: string | null;
   lastVisitOn: string | null;
   line: number;
@@ -126,6 +159,9 @@ export interface ImportResult {
   skippedMuted: number;
   unmappedServices: number;   // service values that matched no clinic category and were dropped
   mergedDuplicates: number;   // same person and asset twice in one file; latest visit kept
+  dependentsGrouped: number;  // rows whose name differed from the number's first holder; filed as dependents
+  emailsDropped: number;      // email already belonged to another contact in this file
+  dateOrder: "MDY" | "DMY";   // shown to the clinic so they can confirm before import
 }
 
 export interface ImportOptions {
@@ -153,12 +189,18 @@ function matchCategory(raw: string | undefined, categories: string[]): string | 
 export function importCsv(text: string, opts: ImportOptions): ImportResult {
   const { muted, serviceCategories, mapping, dateBounds } = opts;
   const [header, ...data] = parseCsvRows(text);
-  const out: ImportResult = { rows: [], rejected: [], skippedMuted: 0, unmappedServices: 0, mergedDuplicates: 0 };
+  const out: ImportResult = { rows: [], rejected: [], skippedMuted: 0, unmappedServices: 0, mergedDuplicates: 0, dependentsGrouped: 0, emailsDropped: 0, dateOrder: "MDY" };
   if (!header) return out;
   const map = mapping ?? guessMapping(header.cells);
   if (map.full_name === undefined) throw new Error("No name column found; map columns manually.");
   const get = (r: string[], f: TargetField) => (map[f] === undefined ? undefined : r[map[f]!]?.trim() || undefined);
+  out.dateOrder = detectDateOrder(data.map((d) => get(d.cells, "last_visit_on")));
+  const hasPetColumn = map.asset_label !== undefined;
 
+  // One contact per mobile (or email if there is no mobile). In PH a parent's number often covers
+  // the whole family: the first name seen holds the number, later names become dependents.
+  const holderName = new Map<string, string>();     // contact key -> holder's name
+  const emailOwner = new Map<string, string>();     // email -> contact key
   const byKey = new Map<string, ImportedRow>();
   for (const { cells: r, line } of data) {
     const fullName = get(r, "full_name");
@@ -176,17 +218,31 @@ export function importCsv(text: string, opts: ImportOptions): ImportResult {
     const serviceCategory = matchCategory(rawService, serviceCategories);
     if (rawService && !serviceCategory) out.unmappedServices++;
     const rawDate = get(r, "last_visit_on");
-    const lastVisitOn = normalizeDate(rawDate, dateBounds);
+    const lastVisitOn = normalizeDate(rawDate, dateBounds, out.dateOrder);
     if (rawDate && !lastVisitOn) { out.rejected.push({ line, reason: "unreadable or out-of-range date" }); continue; }
 
+    const contactKey = mobile ?? emailOwner.get(email!) ?? email!;
+    let rowEmail = email;
+    if (email) {
+      const owner = emailOwner.get(email);
+      if (!owner) emailOwner.set(email, contactKey);
+      else if (owner !== contactKey) { rowEmail = null; out.emailsDropped++; }
+    }
+    const holder = holderName.get(contactKey);
+    if (!holder) holderName.set(contactKey, fullName);
+    const sameHolder = !holder || holder.toLowerCase() === fullName.toLowerCase();
+    let assetLabel = get(r, "asset_label") ?? null;
+    let assetKind: ImportedRow["assetKind"] = hasPetColumn && assetLabel ? "pet" : "self";
+    if (!sameHolder && assetKind === "self") { assetLabel = fullName.slice(0, 60); assetKind = "dependent"; out.dependentsGrouped++; }
+
     const row: ImportedRow = {
-      fullName, mobile, email,
+      fullName: holder ?? fullName, mobile, email: rowEmail,
       externalRef: get(r, "external_ref") ?? null,
-      assetLabel: get(r, "asset_label") ?? null,
-      species: get(r, "species") ?? null,
+      assetLabel, assetKind,
+      species: assetKind === "pet" ? normalizeSpecies(get(r, "species")) : null,
       serviceCategory, lastVisitOn, line,
     };
-    const key = `${mobile ?? email}|${(row.assetLabel ?? "").toLowerCase()}|${serviceCategory ?? ""}`;
+    const key = `${contactKey}|${(assetLabel ?? "").toLowerCase()}|${serviceCategory ?? ""}`;
     const prev = byKey.get(key);
     if (prev) {
       out.mergedDuplicates++;

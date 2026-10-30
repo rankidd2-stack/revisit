@@ -64,6 +64,25 @@ describe("schema guarantees", () => {
     await rejects(`insert into campaigns (clinic_id, kind, name, body, announcement_type, status) values ($1, 'marketing', 'X', 'Y', 'spotlight', 'live')`, [clinicA]);
   });
 
+  it("a send's kind must match its event, and approval can't be blank", async () => {
+    const camp = (await one<{ id: string }>(`insert into campaigns (clinic_id, name, body, announcement_type) values ($1, 'News', 'Y', 'clinic_news') returning id`, [clinicA])).id;
+    await rejects(`insert into sends (clinic_id, contact_id, event_key, kind, campaign_id, channel, approved_by) values ($1, $2, $3, 'reminder', $4, 'sms', 'x')`, [clinicA, contact, `campaign:${camp}`, camp]);
+    await rejects(`insert into sends (clinic_id, contact_id, event_key, kind, campaign_id, channel, approved_by) values ($1, $2, $3, 'marketing', $4, 'sms', '  ')`, [clinicA, contact, `campaign:${camp}`, camp]);
+    await rejects(`insert into campaigns (clinic_id, kind, name, body, announcement_type) values ($1, 'reminder', 'X', 'Y', 'clinic_news')`, [clinicA]);
+    await rejects(`insert into sends (clinic_id, contact_id, event_key, kind, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by) values ($1, $2, 'recall:x', 'recall', $3, '2026-11-01', 0, 'sms', 'a')`, [clinicA, contact, rule]);
+  });
+
+  it("a pet with recall history can still be deleted", async () => {
+    await db.query(`delete from assets where id = $1`, [asset]);
+    const row = await one<{ asset_id: string | null }>(`select asset_id from sends where event_key like 'recall:%' limit 1`);
+    expect(row.asset_id).toBeNull();
+  });
+
+  it("consent rows can't point at another clinic's contact or be truncated", async () => {
+    await rejects(`insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by) values ($1, $2, 'marketing', true, 'qr', 'v1', 'patient')`, [clinicB, contact]);
+    await rejects(`truncate consent_events`);
+  });
+
   it("sender names are at most 11 characters", async () => {
     await rejects(`update clinics set sender_name = 'PAWCAREVETCLINIC' where id = $1`, [clinicA]);
   });

@@ -52,6 +52,7 @@ export function normalizeForSms(text: string): string {
     .replace(/[“”„″]/g, '"')
     .replace(/[–—−]/g, "-")
     .replace(/…/g, "...")
+    .replace(/₱\s?/g, "P")
     .replace(/[   ]/g, " ");
 }
 
@@ -82,7 +83,7 @@ export function buildFooter(f: FooterInput): string {
   return `\nReply: ${reply}\nStop msgs: ${url.toString()}`;
 }
 
-const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "goo.gl", "t.co", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "shorturl.at", "s.id", "tiny.cc", "rebrand.ly", "t.ly", "buff.ly"]);
+const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "goo.gl", "t.co", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "shorturl.at", "s.id", "tiny.cc", "rebrand.ly", "t.ly", "buff.ly", "bitly.com", "bit.do", "shorturl.asia", "lnkd.in"]);
 const DISCOUNT_WORDS = [
   /%\s*off/i, /\bsale\b/i, /\bpromo\b/i, /\bdiscount/i, /\bfree with\b/i, /\bbuy\s*1\b/i, /\bless\s+\d/i,
   /\bcodes?\b/i, /\bvouchers?\b/i, /\brewards?\b/i, /\bpoints\b/i, /\bstamps?\b/i, /\braffle/i, /\bcashback\b/i,
@@ -116,14 +117,16 @@ export interface ContentCheckOptions {
 }
 
 // Human treatments are health data under the DPA, so they stay off lock screens by default.
-// Stems match plurals and Taglish forms ("brace" matches "braces", "pasta" = filling, "bunot" = extraction).
+// English stems match from a word start ("brace" matches "braces"). Filipino stems match anywhere in
+// a word, because Tagalog affixes and infixes wrap the root: magpabunot, pinapastahan, nagpapustiso.
 // Pet care (vaccines, deworming) is not human health data and is useful in a reminder, so vets
 // only block euthanasia wording by default.
 const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
   human: ["extraction", "root canal", "rct", "botox", "filler", "brace", "denture", "implant", "whitening",
-    "gum disease", "laser", "filling", "pasta", "bunot", "pustiso", "retainer", "aligner"],
+    "gum disease", "laser", "filling", "retainer", "aligner", "orthodont"],
   vet: ["euthan"],
 };
+const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -144,9 +147,12 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
     if (re.test(body)) issues.push({ code: "medical_claim", message: `"${body.match(re)?.[0]}" is a results claim.` });
   }
   if (!opts.nameTreatmentsAllowed) {
-    const terms = [...DEFAULT_SENSITIVE[opts.vertical === "vet" ? "vet" : "human"], ...(opts.sensitiveTerms ?? [])];
-    for (const t of new Set(terms.map((x) => x.trim().toLowerCase()).filter(Boolean))) {
-      if (new RegExp(`\\b${escapeRe(t)}`, "i").test(body)) {
+    const human = opts.vertical !== "vet";
+    const terms = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(opts.sensitiveTerms ?? [])];
+    const roots = new Set(human ? FILIPINO_ROOTS : []);
+    for (const t of new Set([...terms.map((x) => x.trim().toLowerCase()).filter(Boolean), ...roots])) {
+      const re = roots.has(t) ? new RegExp(escapeRe(t), "i") : new RegExp(`\\b${escapeRe(t)}`, "i");
+      if (re.test(body)) {
         issues.push({ code: "names_treatment", message: `"${t}" names a treatment; default texts must not (lock-screen privacy).` });
       }
     }

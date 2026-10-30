@@ -118,15 +118,16 @@ create table appointments (
 create table consent_events (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete restrict,
-  contact_id uuid references contacts(id) on delete set null,  -- the proof outlives the contact
+  contact_id uuid,                       -- the proof outlives the contact (FK below sets this null)
   mobile_snapshot text,                  -- who consented, kept if the contact is deleted
   email_snapshot text,
   purpose text not null check (purpose in ('service','marketing','testimonial')),
   granted boolean not null,
   channel text not null check (channel in ('intake_form','qr','sms_yes','stop_link','staff','google_form')),
   text_version text not null,            -- which consent wording the person saw
-  captured_by text not null,             -- staff user id, or 'patient' for self-service
-  recorded_at timestamptz not null default now()
+  captured_by text not null check (char_length(trim(captured_by)) > 0),  -- staff user id, or 'patient'
+  recorded_at timestamptz not null default now(),
+  foreign key (clinic_id, contact_id) references contacts (clinic_id, id) on delete set null (contact_id)
 );
 
 -- Rows can never be edited or deleted, with one exception: the foreign key may be cleared when a
@@ -143,6 +144,13 @@ end $$;
 create trigger consent_events_append_only before update or delete on consent_events
   for each row execute function forbid_consent_changes();
 
+create function forbid_consent_truncate() returns trigger language plpgsql as $$
+begin
+  raise exception 'consent_events is append-only';
+end $$;
+create trigger consent_events_no_truncate before truncate on consent_events
+  for each statement execute function forbid_consent_truncate();
+
 -- Mute list lives here and survives every re-import.
 create table mutes (
   clinic_id uuid not null references clinics(id) on delete cascade,
@@ -157,7 +165,7 @@ create table mutes (
 create table campaigns (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  kind text not null check (kind in ('reminder','recall','marketing','feedback')),
+  kind text not null default 'marketing' check (kind = 'marketing'),  -- reminders, recalls and feedback are automations, not campaigns
   name text not null,
   announcement_type text check (announcement_type in ('spotlight','new_service','clinic_news','care_tip','free_event')),
   body text not null,
@@ -184,7 +192,7 @@ create table sends (
   cycle_due_on date,
   step_offset_days int,
   channel text not null check (channel in ('sms','email')),
-  approved_by text not null,
+  approved_by text not null check (char_length(trim(approved_by)) > 0),
   provider_message_id text,
   segments int check (segments >= 0),
   status text not null default 'queued' check (status in ('queued','accepted','sent','failed','refunded')),
@@ -194,9 +202,27 @@ create table sends (
   foreign key (clinic_id, campaign_id) references campaigns (clinic_id, id),
   foreign key (clinic_id, asset_id) references assets (clinic_id, id) on delete set null (asset_id),
   foreign key (clinic_id, recall_rule_id) references recall_rules (clinic_id, id),
-  check (kind <> 'recall' or (asset_id is not null and recall_rule_id is not null and cycle_due_on is not null and step_offset_days is not null)),
-  check (kind <> 'marketing' or campaign_id is not null)
+  -- asset_id is not in this check, so a pet or dependent can still be deleted later (set null);
+  -- the insert trigger below requires it on new recall rows.
+  check (kind <> 'recall' or (recall_rule_id is not null and cycle_due_on is not null and step_offset_days is not null)),
+  check (kind <> 'marketing' or campaign_id is not null),
+  -- the kind must match the event, so a promo can never be logged (or gated) as a reminder
+  constraint kind_matches_event check (
+    (kind = 'marketing' and event_key like 'campaign:%') or
+    (kind = 'recall'    and event_key like 'recall:%') or
+    (kind = 'reminder'  and event_key like 'reminder:%') or
+    (kind = 'feedback'  and event_key like 'feedback:%'))
 );
+
+create function recall_send_needs_asset() returns trigger language plpgsql as $$
+begin
+  if new.kind = 'recall' and new.asset_id is null then
+    raise exception 'recall sends must reference an asset';
+  end if;
+  return new;
+end $$;
+create trigger sends_recall_asset before insert on sends
+  for each row execute function recall_send_needs_asset();
 
 create table sync_runs (
   id uuid primary key default gen_random_uuid(),
