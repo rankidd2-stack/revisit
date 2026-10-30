@@ -260,7 +260,7 @@ describe("database rows drive the send pipeline", () => {
     const clinic = await clinicCtx(clinicA);
     const c = await contactOf(clinicA, contactId);
     return prepareSms({
-      clinic: clinic.profile, contact: c.contact, policy: clinic.policy, now, approval, event,
+      clinic: clinic.profile, contact: c.contact, policy: clinic.policy, now, approval, event, subject: "pet",
       sentEventKeys: c.sentEventKeys, vars: { first_name: "Ana", pet_name: "Bantay" },
       stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
     });

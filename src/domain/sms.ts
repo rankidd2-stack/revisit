@@ -128,7 +128,7 @@ export interface ContentCheckOptions {
   nameTreatmentsAllowed: boolean;
   vertical?: "dental" | "vet" | "aesthetic" | "other";
   sensitiveTerms?: string[];   // clinic-specific words; the send pipeline adds the clinic's service categories for human clinics
-  /** Routine visit words may be named (default true). Off for texts about a dependent. */
+  /** Routine visit words may be named. Off unless the caller turns it on; never on for a text about someone else. */
   allowVisitWords?: boolean;
 }
 
@@ -145,49 +145,100 @@ const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
 };
 const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
 
-// Routine visit words allowed in default texts (Patrick, 2026-10-30): they say nothing a clinic's
-// name doesn't already say. A clinic service category named with one of these, alone or after a
-// generic qualifier ("Dental check-up", "Teeth cleaning"), is not treated as a treatment name.
-// Anything more ("Cleaning and whitening") still blocks, and the default treatment list still applies.
+// Routine visit words allowed in default texts for every human clinic (Patrick, 2026-10-30): they
+// say nothing a clinic's sender name doesn't already say. English words only. A clinic category made
+// only of these words, generic qualifiers and "and" ("Dental check-up", "Cleaning and check-up") is
+// not treated as a treatment name. Anything more ("Deep cleaning") still blocks, and the default
+// treatment list still applies.
 export const ALLOWED_VISIT_WORDS = ["cleaning", "check-up", "consultation"] as const;
-const ALLOWED_VISIT_TERM = /^(?:(?:dental|teeth|tooth|general|routine|regular|annual)\s+)?(?:cleanings?|check[\s-]?ups?|consultations?)$/i;
+const ROUTINE_WORDS = new Set(["cleaning", "cleanings", "checkup", "checkups", "consultation", "consultations"]);
+const QUALIFIERS = new Set(["dental", "teeth", "tooth", "general", "routine", "regular", "annual"]);
 
-/** True if a clinic term is only a routine visit word, so naming it in a default text is fine. */
-export function isAllowedVisitTerm(term: string): boolean {
-  return ALLOWED_VISIT_TERM.test(term.trim().replace(/\s+/g, " "));
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+
+/** Lowercase, accents and width folded (é -> e, full-width letters -> ASCII), invisible format characters dropped. */
+function fold(s: string): string {
+  return s.normalize("NFKD").replace(/\p{Cf}/gu, "").replace(/\p{M}/gu, "").toLowerCase();
 }
 
 /**
- * Text as the treatment matcher sees it: lowercase, invisible characters dropped, every hyphen,
- * dash and whitespace run turned into one space, and check-up/checkup/check up spelled one way.
- * So "deep-cleaning", "deep  cleaning" and a line break between the words all match "deep cleaning".
+ * Text as the treatment matcher sees it: only letters, digits and single spaces, with
+ * check-up/checkup/check up spelled one way. `spaced` turns every other character into a space, so
+ * "deep-cleaning" and a line break between the words both read "deep cleaning". `joined` drops
+ * punctuation instead, so "pre-natal" reads "prenatal". `solid` (for terms only) also drops spaces,
+ * so "deep cleaning" catches "deepcleaning". A word in the text split by a plain space is not rejoined.
  */
-function forMatching(s: string): string {
-  return s.toLowerCase()
-    .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, "")
-    .replace(/[-\u2010-\u2015\u2212]/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/\bcheck ?ups?\b/g, "checkup")
+type Form = "spaced" | "joined" | "solid";
+function forMatching(s: string, mode: Form = "spaced"): string {
+  let t = fold(s);
+  if (mode === "joined") t = t.replace(/[^\p{L}\p{N}\s]+/gu, "");
+  if (mode === "solid") t = t.replace(/[^\p{L}\p{N}]+/gu, "");
+  return t.replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/(?<![\p{L}\p{N}])check ?ups?(?![\p{L}\p{N}])/gu, (m) => (m.endsWith("s") ? "checkups" : "checkup"))
     .trim();
 }
 
-// Words that say nothing on their own, so they are never blocked by themselves.
-const PLAIN_WORDS = new Set(["cleaning", "cleanings", "checkup", "checkups", "consultation", "consultations",
-  "dental", "teeth", "tooth", "general", "routine", "regular", "annual", "and", "for", "the", "with", "visit", "visits",
-  "appointment", "session", "follow", "due", "care", "service", "services", "new", "first", "adult", "kids", "child", "patient"]);
-const ROUTINE_WORD = /\b(?:cleanings?|checkups?|consultations?)\b/;
+const wordsOf = (t: string) => t.split(" ").filter(Boolean);
 
-/**
- * A clinic category built on a routine word ("Deep cleaning", "HIV consultation") also blocks its
- * other words on their own, so "consultation for HIV" or a split phrase can't slip past. Without
- * the allowlist (texts about a dependent) the routine word itself blocks too.
- */
-function extraWords(term: string, allowVisitWords: boolean): string[] {
-  if (!ROUTINE_WORD.test(term)) return [];
-  return term.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && (!PLAIN_WORDS.has(w) || (!allowVisitWords && ROUTINE_WORD.test(w))));
+/** True if a clinic term is only routine visit words (with generic qualifiers and "and"), so naming it in a default text is fine. */
+export function isAllowedVisitTerm(term: string): boolean {
+  const words = wordsOf(forMatching(term));
+  return words.some((w) => ROUTINE_WORDS.has(w)) && words.every((w) => ROUTINE_WORDS.has(w) || QUALIFIERS.has(w) || w === "and");
 }
 
+// Words that say nothing on their own, so a clinic category word on this list never blocks by itself.
+const PLAIN_WORDS = new Set([...ROUTINE_WORDS, ...QUALIFIERS,
+  "a", "an", "and", "or", "of", "for", "the", "to", "in", "on", "at", "by", "with", "per", "dr", "dra", "doc", "mr", "ms", "mrs",
+  "visit", "visits", "appointment", "appointments", "session", "sessions", "follow", "up", "due", "care", "service", "services",
+  "new", "first", "adult", "adults", "kids", "child", "children", "patient", "patients", "family", "clinic", "test", "tests"]);
+
+const FORMS: readonly Form[] = ["spaced", "joined", "solid"];
+
+interface Matcher { re: RegExp; shown: string; source: string | null }
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const START = "(?<![\\p{L}\\p{N}])";
+const END = "(?![\\p{L}\\p{N}])";
+
+/**
+ * Patterns a default text must not contain.
+ *  - Default stems match from a word start; Filipino roots anywhere in a word.
+ *  - A clinic category matches as a whole phrase, and each of its words of 2 letters or more
+ *    ("TB", "HIV", "deep") also blocks alone as a whole word, plurals included, unless it is a plain
+ *    word. Whole words, so "STI" never blocks "still".
+ *  - With the allowlist on, a category of only routine words blocks nothing and routine words never
+ *    block alone. With it off (texts about someone else) they block like any other word.
+ */
+function treatmentMatchers(human: boolean, clinicTerms: string[], allowVisitWords: boolean): Matcher[] {
+  const out = new Map<string, Matcher>();
+  const add = (pattern: string, shown: string, source: string | null) => {
+    if (!out.has(pattern)) out.set(pattern, { re: new RegExp(pattern, "u"), shown, source });
+  };
+  for (const stem of DEFAULT_SENSITIVE[human ? "human" : "vet"]) {
+    for (const mode of FORMS) {
+      const t = forMatching(stem, mode);
+      if (t) add(START + escapeRe(t), stem, null);
+    }
+  }
+  if (human) for (const root of FILIPINO_ROOTS) add(escapeRe(root), root, null);
+  for (const term of clinicTerms) {
+    if (typeof term !== "string" || !LETTER_OR_DIGIT.test(term)) continue;
+    if (allowVisitWords && isAllowedVisitTerm(term)) continue;
+    const label = term.trim().replace(/\s+/g, " ");
+    for (const mode of FORMS) {
+      const t = forMatching(term, mode);
+      if (!t) continue;
+      add(START + escapeRe(t) + "(?:e?s)?" + END, t, label);
+      if (mode === "solid") continue;
+      for (const w of wordsOf(t)) {
+        if (w.length < 2) continue;
+        const plain = PLAIN_WORDS.has(w) && !(ROUTINE_WORDS.has(w) && !allowVisitWords);
+        if (!plain) add(START + escapeRe(w) + "(?:e?s)?" + END, w, label);
+      }
+    }
+  }
+  return [...out.values()];
+}
 
 export function checkContent(body: string, opts: ContentCheckOptions): ContentIssue[] {
   const issues: ContentIssue[] = [];
@@ -207,16 +258,13 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
   }
   if (!opts.nameTreatmentsAllowed) {
     const human = opts.vertical !== "vet";
-    const terms = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(opts.sensitiveTerms ?? [])];
-    const roots = new Set(human ? FILIPINO_ROOTS : []);
-    const allowVisitWords = opts.allowVisitWords ?? true;
-    const blocked = terms.map(forMatching).filter((x) => x && !(allowVisitWords && isAllowedVisitTerm(x)));
-    const text = forMatching(body);
-    for (const t of new Set([...blocked, ...blocked.flatMap((t) => extraWords(t, allowVisitWords)), ...roots])) {
-      const re = roots.has(t) ? new RegExp(escapeRe(t), "i") : new RegExp(`\\b${escapeRe(t)}`, "i");
-      if (re.test(text)) {
-        issues.push({ code: "names_treatment", message: `"${t}" names a treatment; default texts must not (lock-screen privacy).` });
-      }
+    const texts = [forMatching(body, "spaced"), forMatching(body, "joined")];
+    const seen = new Set<string>();
+    for (const m of treatmentMatchers(human, opts.sensitiveTerms ?? [], opts.allowVisitWords === true)) {
+      if (!texts.some((t) => m.re.test(t))) continue;
+      const from = m.source ? ` (from the clinic service "${m.source}")` : "";
+      const message = `"${m.shown}"${from} names a treatment; default texts must not (lock-screen privacy).`;
+      if (!seen.has(message)) { seen.add(message); issues.push({ code: "names_treatment", message }); }
     }
   }
   return issues;

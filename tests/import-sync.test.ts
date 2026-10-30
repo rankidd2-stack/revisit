@@ -140,7 +140,7 @@ const camp = (template: string, over: object = {}) => ({ type: "campaign" as con
 const prep = (over: Partial<Parameters<typeof prepareSms>[0]> = {}) =>
   prepareSms({
     clinic, contact, policy: { ...DEFAULT_POLICY, syncHealthy: true }, now: tenAm,
-    approval: auto("recall-rule:r1"),
+    approval: auto("recall-rule:r1"), subject: "self",
     event: recallEvent, sentEventKeys: new Set(),
     vars: { first_name: "Ana", pet_name: "Bantay" }, stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
     ...over,
@@ -229,6 +229,11 @@ describe("send pipeline", () => {
     expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your root canal visit is due." }) })).toMatchObject({ ok: false, reason: "content" });
     // Texts about a dependent stay strict until the legal check (DPA s.13).
     expect(prep({ clinic: dental, subject: "dependent", approval: auto("recall-rule:r1", { template: "Hi {first_name}, Mika's dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
+    // R50: another person, or a missing or unknown subject from an untyped payload, gets the strict rules.
+    for (const subject of ["other", undefined, "Self", ""]) {
+      expect(prep({ clinic: dental, subject: subject as never, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
+    }
+    expect(prep({ clinic: dental, subject: "self", approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: true });
   });
   it("checks clinic-entered footer links for shorteners", () => {
     expect(prep({ clinic: { ...clinic, replyPhone: null, messengerUrl: "https://bit.ly/x" } })).toMatchObject({ ok: false, reason: "content" });

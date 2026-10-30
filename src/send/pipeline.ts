@@ -42,8 +42,11 @@ export type SendEvent =
   | { type: "reminder"; appointmentId: string; slot: "24h" | "2h" }
   | { type: "feedback"; visitId: string };
 
-/** Who the text is about. Texts about a dependent never name a treatment (DPA s.13). */
+/** Who the text is about (assets.kind). Texts about another person never name a treatment (DPA s.13). */
 export type Subject = "self" | "dependent" | "pet" | "package" | "other";
+// Subjects that are the contact themself or not a person. Anything else, including a missing or
+// unknown value from an untyped queue payload, is treated as someone else: strict.
+const ABOUT_CONTACT_OR_PET: ReadonlySet<unknown> = new Set<Subject>(["self", "pet", "package"]);
 
 const unknownEvent = (e: never): never => { throw new Error(`Unknown send event type: ${String((e as { type?: unknown })?.type)}`); };
 
@@ -127,7 +130,7 @@ export interface PrepareArgs {
   now: Date;
   approval: Approval | null;
   event: SendEvent;
-  subject?: Subject;              // who the text is about; default "self"
+  subject: Subject;               // who the text is about; required, so no caller gets the relaxed rules by leaving it out
   sentEventKeys: Set<string>;     // event keys already in the sends table for this contact
   vars: Record<string, string>;   // values for the approved template's placeholders
   stopUrl: string;                // per-contact one-tap opt-out link
@@ -157,12 +160,12 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
   if (rendered === null) return { ok: false, reason: "missing_variable" };
   const text = normalizeForSms(rendered).trim();
   const human = clinic.vertical !== "vet";
-  const aboutSomeoneElse = (a.subject ?? "self") === "dependent";
+  const aboutSomeoneElse = !ABOUT_CONTACT_OR_PET.has(a.subject);
   const issues = checkContent(text, {
     kind,
     vertical: clinic.vertical,
     nameTreatmentsAllowed: clinic.nameTreatmentsAllowed && !aboutSomeoneElse,
-    // The routine-word allowlist is off for dependents until the pending legal check (DPA s.13).
+    // The routine-word allowlist is off for texts about another person until the legal check (DPA s.13).
     allowVisitWords: !aboutSomeoneElse,
     sensitiveTerms: human ? clinic.serviceCategories : [],
   });
