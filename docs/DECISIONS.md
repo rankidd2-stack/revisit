@@ -112,3 +112,13 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - G18 (Claude, defaults): default human list extended with TB, OB, HPV, PCOS, ADHD (whole words) and infertility, STIs, reproductive, mental health, kidney, heart, cancer screening and other stems. Stricter only. Consequence: a human clinic's marketing text like "Free diabetes talk" is blocked unless the clinic opted in to naming treatments, which is locked decision 9 working as intended.
 - G19: "aids" matches whole words only; "hearing aids" still blocks. Accepted: it fails closed and the clinic sees why.
 - Compliance note for the legal consult: the word list can never be complete. The lasting safeguard is the clinic's own service list, filled in at onboarding; the console makes that a required setup step.
+
+## 2026-10-30 -- Reviewer round 6 (third round this run): FAIL, branch parked
+- R70 (blocker, introduced by the round 5 fix): masking name placeholders means names are never checked. `importCsv` keeps full names as typed, so "Ana Cruz (braces)" or "Ana Cruz HIV" reaches the lock screen. Before a52a822 these were blocked.
+- compliance-guard round 3: PASS with risks G20 ({clinic} supplied by the caller is masked) and G21 (pet or dependent labels are masked and never checked).
+- Fix for the next run, one change covers R70, R71, R72, G20 and G21:
+  1. Keep `treatmentText` inside the pipeline (not a public checkContent option), or have checkContent take the name values itself.
+  2. Name values (first_name, pet_name, clinic and the rest) are checked against the default sensitive list and whole words, but not against the clinic's own category words. "Stephanie" passes, "Ana Cruz (braces)" and "Manila HIV and Rehab Center" block.
+  3. Strip bracketed notes and text after " - " from full names on import, as asset labels already are.
+  4. R73: make cardi, breast and therap whole-word or more specific ("cardiolog", "breast exam", "therapy session"?), and spare "Cardinal" and "Tuliahan". R74 comment fix. R75 tests for all of the above.
+- Round count: rounds 4, 5 and 6 ran in this run, so per AUTOPILOT step 5 the branch is parked and the run ends. claude/charming-pascal-tycjpp is not merged this run, though it is ready (migration renumbered to 003, 136 tests on its own).

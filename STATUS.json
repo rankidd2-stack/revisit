@@ -51,8 +51,8 @@
         },
         {
           "name": "Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",
-          "state": "in_progress",
-          "note": "Parked on branch claude/eager-turing-bwpp43 (not merged). Open: reviewer round 3 blocker R47 and should-fixes R48-R52; compliance-guard has not yet checked the round 3 changes."
+          "state": "parked",
+          "note": "Parked on branch claude/eager-turing-bwpp43 after 3 review rounds in the 2026-10-30 live run (7 rounds in all). Open: blocker R70; should-fix R71-R73; nits R74-R75; compliance risks G20-G21 (compliance-guard round 3: pass). Next run: fix per the \"Reviewer round 6\" entry in docs/DECISIONS.md, then review and merge. claude/charming-pascal-tycjpp (sync apply, migration renumbered to 003) merges right after it."
         },
         {
           "name": "Database wiring 2: write imports and sync runs to Postgres; muted never re-added, clinic-owned status kept",
@@ -166,7 +166,7 @@
     }
   ],
   "tests": {
-    "passing": 159,
+    "passing": 180,
     "failing": 0
   },
   "needsPatrick": [

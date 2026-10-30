@@ -83,7 +83,7 @@ R56,reviewer,nit,SMS rules,"Block message names the matched word, not the clinic
 R57,reviewer,nit,Database,Migration 002 checks fail on an existing database with untrimmed emails; add NOT VALID then validate if one exists,fixed
 R58,reviewer,blocker,SMS rules,"Whole-word matching let a ""Psych"" or ""Onco"" category miss psychiatry and oncology; 4+ letter words match from a word start again",fixed
 R59,reviewer,should-fix,SMS rules,"Numbers and time units in a category (""30 min"", ""6-month"") blocked ordinary texts",fixed
-R60,reviewer,nit,SMS rules,"A doctor's name in a category blocked patients with the same first name; names are now masked before the check (the Dr/Dra skip was dropped, see R64)",fixed
+R60,reviewer,nit,SMS rules,"A doctor's name in a category blocked patients with the same first name; names are now masked before the check (the Dr/Dra skip was dropped, see R64) -- masking reopened: see R70",open
 R61,reviewer,nit,SMS rules,"A plain space inside a clinic word (""pre natal"") is not caught; accepted limit, pinned by a test",deferred
 R62,reviewer,nit,SMS rules,Blank characters that count as letters (Hangul filler) could hide a word,fixed
 R63,reviewer,nit,Tests,No test that a short category blocks its longer forms,fixed
@@ -93,9 +93,18 @@ G16,compliance-guard,note,Privacy,Subject is supplied by the caller; derive it f
 G17,compliance-guard,note,Decision log,"Qualifier list (dental, teeth, routine...) was credited to Patrick; relabelled as Claude's reading",fixed
 R64,reviewer,blocker,SMS rules,"Skipping words after Dr/Dra let a clinical word through (""Doctor TB check-up""); skip removed",fixed
 R65,reviewer,should-fix,SMS rules,"""Consult"", ""Check"", ""Clean"" categories cancelled the allowlist; now counted as the same routine words",fixed
-R66,reviewer,should-fix,SMS rules,"A clinic name containing a stem (""Psych Wellness Center"") blocked every text; names are masked before the check",fixed
-R67,reviewer,nit,SMS rules,"4+ letter category words blocked patient names that start with them (""Step"" vs Stephanie); names are masked",fixed
+R66,reviewer,should-fix,SMS rules,"A clinic name containing a stem (""Psych Wellness Center"") blocked every text; names are masked before the check -- masking reopened: see R70",open
+R67,reviewer,nit,SMS rules,"4+ letter category words blocked patient names that start with them (""Step"" vs Stephanie); names are masked -- masking reopened: see R70",open
 R68,reviewer,nit,SMS rules,"Ordinals (""2nd"") in a category blocked ordinary texts",fixed
 R69,reviewer,nit,Tests,"No tests for a word after a title, a Consult category, or a stem in the clinic name",fixed
 G18,compliance-guard,risk,SMS rules,"Default list missed TB, OB, infertility, HPV, mental health and other sensitive care; added",fixed
 G19,compliance-guard,note,SMS rules,"""aids"" now whole-word only; ""hearing aids"" still blocks (no word rule can tell them apart), accepted as fail-closed",deferred
+R70,reviewer,blocker,SMS rules,"Masking name placeholders skips checking them; names typed with notes (""Ana Cruz (braces)"", ""Ana Cruz HIV"") reach the lock screen. Introduced in round 5 fix a52a822",open
+R71,reviewer,should-fix,SMS rules,"{clinic_name} ""Smile Implant Center"" is masked, so ""implant"" goes out",open
+R72,reviewer,should-fix,SMS rules,checkContent treatmentText ?? body: an empty or other treatmentText turns the treatment check off for a direct caller,open
+R73,reviewer,should-fix,SMS rules,"New stems over-block place and ordinary words: cardi (Cardinal Santos, cardio dance), tuli (Tuliahan), breast (breastfeeding), therap (therapist)",open
+R74,reviewer,nit,SMS rules,Comment says whole-word spares hearing aids; it does not,open
+R75,reviewer,nit,Tests,"No tests for a name holding treatment text, a placeholder outside NAME_VARS, or an empty treatmentText",open
+G20,compliance-guard,risk,SMS rules,"{clinic} filled by the caller is masked; ""Manila HIV and Rehab Center"" would go out. Fill {clinic} from the approved clinic record or check it against the default list",open
+G21,compliance-guard,risk,SMS rules,"Masked pet or dependent labels (""Lola (dialysis)"") are never checked",open
+G22,compliance-guard,note,SMS rules,"""check"" and ""clean"" are wider than Patrick's three words; logged as Claude's reading, small impact",deferred
