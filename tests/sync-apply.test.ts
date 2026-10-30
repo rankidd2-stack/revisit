@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { applySync } from "../src/sync/apply.js";
 import { syncHealth } from "../src/sync/health.js";
-import { fetchSheetCsv, sheetCsvUrl, sheetIdFromLink } from "../src/sync/sheet.js";
+import { fetchSheetCsv, sheetCsvUrl, sheetIdFromLink, syncSheet } from "../src/sync/sheet.js";
 
 const now = new Date("2026-10-30T02:00:00Z");
 let db: PGlite, clinic: string;
@@ -11,7 +11,7 @@ const count = async (t: string) => Number((await db.query<{ n: string }>(`select
 
 beforeEach(async () => {
   db = new PGlite();
-  await db.exec(readFileSync(new URL("../db/migrations/001_init.sql", import.meta.url), "utf8"));
+  for (const f of ["001_init.sql", "002_visits_unique.sql"]) await db.exec(readFileSync(new URL(`../db/migrations/${f}`, import.meta.url), "utf8"));
   clinic = (await db.query<{ id: string }>(`insert into clinics (name, vertical) values ('Paw Care', 'vet') returning id`)).rows[0]!.id;
   await db.query(`insert into service_categories (clinic_id, name) values ($1, 'Rabies vaccine')`, [clinic]);
 });
@@ -87,6 +87,60 @@ describe("applySync", () => {
   });
 });
 
+describe("data hygiene and sheet sync", () => {
+  it("keeps notes out of names and refs, and ignores note/diagnosis columns", async () => {
+    await applySync(db, clinic, "Owner,Mobile,Id,Diagnosis,Notes\nAna Cruz (HIV+),09171234567,has a long ref with spaces,rabies,biter\n", "csv", now);
+    const c = (await db.query<{ full_name: string; external_ref: string | null }>(`select full_name, external_ref from contacts`)).rows[0]!;
+    expect(c).toEqual({ full_name: "Ana Cruz", external_ref: null });
+    expect(JSON.stringify((await db.query(`select * from contacts`)).rows)).not.toMatch(/rabies|biter/);
+  });
+  it("treats a file with no usable rows as a failed run", async () => {
+    expect(await applySync(db, clinic, "Owner,Mobile\n", "csv", now)).toMatchObject({ ok: false, errorCode: "no_usable_rows" });
+  });
+  it("never inserts a muted email, including email-only rows", async () => {
+    await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'email', 'ana@x.com', 'stop_link')`, [clinic]);
+    const o = await applySync(db, clinic, "Owner,Email,Pet,Service,Last visit\nAna Cruz,ana@x.com,Bantay,Rabies vaccine,2026-06-01\nBen Lim,ben@x.com,Rex,Rabies vaccine,2026-06-01\n", "csv", now);
+    expect(o.contactsAdded).toBe(1);
+    expect(await count("contacts")).toBe(1);
+  });
+  it("a failed sheet fetch logs a failed run, so syncHealth pauses sends", async () => {
+    const id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+    const bad = async () => ({ ok: false, status: 500, text: async () => "" });
+    expect(await syncSheet(db, clinic, bad, id, "0", now)).toMatchObject({ ok: false, errorCode: "sheet_http_500" });
+    const r = (await db.query<{ finished_at: Date; ok: boolean; error_code: string }>(`select finished_at, ok, error_code from sync_runs`)).rows;
+    expect(r[0]).toMatchObject({ ok: false, error_code: "sheet_http_500" });
+    expect(syncHealth(r.map((x) => ({ finishedAt: new Date(x.finished_at), ok: x.ok })), new Date())).toMatchObject({ healthy: false, reason: "never_synced" });
+  });
+  it("accepts visits dated today in Manila when it is still yesterday in UTC", async () => {
+    const o = await applySync(db, clinic, FILE.replace("2026-06-01", "2026-10-31"), "csv", new Date("2026-10-30T17:00:00Z"));
+    expect(o).toMatchObject({ ok: true, visitsAdded: 1 });
+  });
+  it("leaves moved and deceased contacts untouched and reports email conflicts", async () => {
+    await db.query(`insert into contacts (clinic_id, full_name, mobile, status) values ($1, 'A', '639171234567', 'deceased')`, [clinic]);
+    await db.query(`insert into contacts (clinic_id, full_name, mobile, email) values ($1, 'B', '639181111111', 'b@x.com')`, [clinic]);
+    const o = await applySync(db, clinic, "Owner,Mobile,Email,Pet,Service,Last visit\nAna,09171234567,,Bantay,Rabies vaccine,2026-06-01\nBea,09192222222,b@x.com,Rex,Rabies vaccine,2026-06-01\n", "csv", now);
+    expect(o).toMatchObject({ contactsSkippedInactive: 1, conflicts: 1, visitsAdded: 0 });
+  });
+  it("adds a new visit and a new pet for an existing contact", async () => {
+    await applySync(db, clinic, FILE, "csv", now);
+    await applySync(db, clinic, FILE.replace("2026-06-01", "2026-09-01") + "Ana Cruz,09171234567,Mimi,cat,Rabies vaccine,2026-09-02\n", "csv", now);
+    expect(await count("contacts")).toBe(1);
+    expect(await count("assets")).toBe(2);
+    expect(await count("visits")).toBe(3);
+  });
+  it("keeps two clinics' contacts apart", async () => {
+    const other = (await db.query<{ id: string }>(`insert into clinics (name, vertical) values ('Other', 'vet') returning id`)).rows[0]!.id;
+    await applySync(db, clinic, FILE, "csv", now);
+    expect(await applySync(db, other, FILE, "csv", now)).toMatchObject({ ok: true, contactsAdded: 1 });
+    expect(await count("contacts")).toBe(2);
+  });
+  it("applies a good sheet", async () => {
+    const id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+    const good = async () => ({ ok: true, status: 200, text: async () => FILE });
+    expect(await syncSheet(db, clinic, good, id, "0", now)).toMatchObject({ ok: true, contactsAdded: 1 });
+  });
+});
+
 describe("google sheet fetch", () => {
   const id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
   it("builds an export url only for well-formed ids and tabs", () => {
@@ -95,7 +149,9 @@ describe("google sheet fetch", () => {
     expect(() => sheetCsvUrl(id, "0&x=1")).toThrow("bad_sheet_tab");
   });
   it("pulls the id from a pasted link", () => {
-    expect(sheetIdFromLink(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`)).toBe(id);
+    expect(sheetIdFromLink(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`)).toEqual({ id, gid: "0" });
+    expect(sheetIdFromLink(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=123`)).toEqual({ id, gid: "123" });
+    expect(sheetIdFromLink(id)).toEqual({ id, gid: "0" });
     expect(sheetIdFromLink("nope")).toBeNull();
   });
   it("reports private sheets, http errors and oversize files as codes", async () => {
