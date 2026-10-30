@@ -36,6 +36,10 @@ tabs "Product spec v1", "Features and markets", "Add-on backlog".
 - `compliance-guard` -- checks message flows, templates and data handling against DPA, NTC, DTI, Google rules.
 Run reviewer and compliance-guard before any milestone is marked done.
 
+## Unattended runs
+Scheduled runs follow docs/AUTOPILOT.md step by step: one milestone per run, reviewer and
+compliance-guard before merge, anything in Patrick's decision rights parked as a PR plus a needsPatrick entry.
+
 ## Conventions
 - TypeScript, strict. Domain logic is pure functions in src/domain with Vitest tests.
 - Philippine mobile numbers are stored as 639XXXXXXXXX.
