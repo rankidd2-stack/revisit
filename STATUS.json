@@ -147,7 +147,7 @@
     }
   ],
   "tests": {
-    "passing": 82,
+    "passing": 97,
     "failing": 0
   },
   "needsPatrick": [

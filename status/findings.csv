@@ -26,3 +26,11 @@ R12,reviewer,should-fix,Send gate,Owner with two pets due got two recall texts i
 R13,reviewer,should-fix,SMS gateway,Gateway errors and failed messages were silently dropped,fixed
 R14,reviewer,should-fix,Database,Rows could point at another clinic's data; free-text services,fixed
 R15,reviewer,should-fix,SMS cost,Segment count could be off; curly quotes tripled cost,fixed
+R16,reviewer,blocker,Send pipeline,A promo labelled as a reminder skipped consent and the discount check,fixed
+R17,reviewer,should-fix,Approvals,An approval for one campaign could cover an unrelated send,fixed
+R18,reviewer,should-fix,SMS rules,Clinic Messenger link in the footer was not checked for shorteners,fixed
+R19,reviewer,should-fix,Database,A pet with recall history could not be deleted,fixed
+R20,reviewer,should-fix,Privacy,Consent rows could point at another clinic's contact,fixed
+R21,reviewer,should-fix,Lock-screen privacy,Tagalog affixed forms (magpabunot) passed,fixed
+R22,reviewer,should-fix,Import,"Vet species, stray quotes, shared family numbers, DD/MM files",fixed
+R23,reviewer,nit,Send gate,Two pets due the same day: second pet goes next day (merge later),deferred
