@@ -129,29 +129,54 @@ const contact = {
 };
 const tenAm = new Date("2026-10-30T02:00:00Z");
 const recallEvent = { type: "recall" as const, assetId: "a1", ruleId: "r1", dueOn: "2026-10-30", stepOffsetDays: 0 };
+const recallTemplate = "Hi {first_name}, {pet_name} is due for a visit.";
+const auto = (automationId: string, over: object = {}) => ({ type: "automation" as const, automationId, approvedBy: "admin@pawcare", template: recallTemplate, ...over });
+const campaignEvent = { type: "campaign" as const, campaignId: "c1" };
+const camp = (template: string, over: object = {}) => ({ type: "campaign" as const, campaignId: "c1", approvedBy: "x", template, ...over });
 const prep = (over: Partial<Parameters<typeof prepareSms>[0]> = {}) =>
   prepareSms({
     clinic, contact, policy: { ...DEFAULT_POLICY, syncHealthy: true }, now: tenAm,
-    approval: { type: "automation", automationId: "recall-rule:r1", approvedBy: "admin@pawcare" },
+    approval: auto("recall-rule:r1"),
     event: recallEvent, sentEventKeys: new Set(),
-    body: "Hi Ana, Bantay is due for his rabies vaccine.", stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
+    vars: { first_name: "Ana", pet_name: "Bantay" }, stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
     ...over,
   });
 
 describe("send pipeline", () => {
-  it("appends reply path and stop link, and carries the event key", () => {
+  it("renders the approved template, appends reply path and stop link, and carries the event key", () => {
     const r = prep();
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.sms.body).toMatch(/Reply: 0917 555 0000\nStop msgs: https:\/\/revisit\.ph\/s\/x1$/);
+      expect(r.sms.body).toBe("Hi Ana, Bantay is due for a visit.\nReply: 0917 555 0000\nStop msgs: https://revisit.example/s/x1");
       expect(r.sms.eventKey).toBe("recall:a1:r1:2026-10-30:0");
+      expect(r.sms.kind).toBe("recall");
     }
   });
-  it("refuses anything without a human approval", () => {
+  it("refuses anything without a human approval of this event and this wording", () => {
     expect(prep({ approval: null })).toMatchObject({ ok: false, reason: "not_approved" });
-    expect(prep({ approval: { type: "automation", automationId: "recall-rule:r1", approvedBy: " " } })).toMatchObject({ ok: false, reason: "not_approved" });
-    const campaign = { type: "campaign" as const, campaignId: "c1" };
-    expect(prep({ event: campaign, approval: { type: "campaign", campaignId: "c2", approvedBy: "x" } })).toMatchObject({ ok: false, reason: "not_approved" });
+    expect(prep({ approval: auto("recall-rule:r1", { approvedBy: " " }) })).toMatchObject({ reason: "not_approved" });
+    expect(prep({ approval: auto("recall-rule:r1", { template: "" }) })).toMatchObject({ reason: "not_approved" });
+    expect(prep({ event: campaignEvent, approval: camp("News", { campaignId: "c2" }) })).toMatchObject({ reason: "not_approved" });
+  });
+  it("an approval only covers its own event", () => {
+    expect(prep({ approval: camp("x", { campaignId: "unrelated" }) })).toMatchObject({ reason: "not_approved" });
+    expect(prep({ approval: auto("recall-rule:other") })).toMatchObject({ reason: "not_approved" });
+    expect(prep({ approval: auto("reminders") })).toMatchObject({ reason: "not_approved" });
+  });
+  it("rejects untyped or malformed events and approvals from a queue", () => {
+    const bad = { type: "Campaign" } as unknown as typeof recallEvent;
+    expect(() => prep({ event: bad, approval: { type: "automation", approvedBy: "x", template: "t" } as never })).toThrow(/Unknown send event/);
+    expect(prep({ approval: { type: "automation", approvedBy: "x", template: "t" } as never })).toMatchObject({ reason: "not_approved" });
+  });
+  it("refuses a mobile that isn't exactly one PH number", () => {
+    expect(prep({ contact: { ...contact, mobile: "639171234567,639181234567" } })).toMatchObject({ ok: false, reason: "bad_mobile" });
+  });
+  it("refuses to send with a missing placeholder value", () => {
+    expect(prep({ vars: { first_name: "Ana" } })).toMatchObject({ ok: false, reason: "missing_variable" });
+  });
+  it("variables can't smuggle in promo wording or extra lines", () => {
+    const r = prep({ event: campaignEvent, approval: camp("Hi {first_name}, see you soon"), vars: { first_name: "Ana 50% off\nSALE" } });
+    expect(r).toMatchObject({ ok: false, reason: "content" });
   });
   it("never sends the same event twice", () => {
     expect(prep({ sentEventKeys: new Set([eventKey(recallEvent)]) })).toMatchObject({ ok: false, reason: "already_sent" });
@@ -160,40 +185,37 @@ describe("send pipeline", () => {
     expect(prep({ stopUrl: "" })).toMatchObject({ ok: false, reason: "bad_stop_link" });
     expect(prep({ stopUrl: "https://bit.ly/x" })).toMatchObject({ ok: false, reason: "bad_stop_link" });
   });
-  it("vet reminders may name pet care; human clinics may not name their services", () => {
-    expect(prep().ok).toBe(true);
+  it("vet texts may name pet care; human clinics may not name their services", () => {
+    expect(prep({ approval: auto("recall-rule:r1", { template: "{pet_name} is due for the rabies vaccine." }) }).ok).toBe(true);
     const dental = { ...clinic, vertical: "dental" as const, serviceCategories: ["Root canal follow-up"] };
-    expect(prep({ clinic: dental, body: "Hi Ana, your root canal follow-up is due." })).toMatchObject({ ok: false, reason: "content" });
+    expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your root canal follow-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
+  });
+  it("texts about a dependent never name a treatment, even if the clinic opted in", () => {
+    const dental = { ...clinic, vertical: "dental" as const, nameTreatmentsAllowed: true, serviceCategories: [] };
+    const tpl = auto("recall-rule:r1", { template: "Hi {first_name}, Mika's braces check is due." });
+    expect(prep({ clinic: dental, approval: tpl }).ok).toBe(true);
+    expect(prep({ clinic: dental, approval: tpl, subject: "dependent" })).toMatchObject({ ok: false, reason: "content" });
   });
   it("blocks unapproved sender names and ineligible contacts", () => {
     expect(prep({ clinic: { ...clinic, senderNameApproved: false } })).toMatchObject({ ok: false, reason: "sender_not_approved" });
     expect(prep({ contact: { ...contact, muted: true } })).toMatchObject({ ok: false, reason: "muted" });
   });
   it("blocks promo wording in marketing texts", () => {
-    const event = { type: "campaign" as const, campaignId: "c1" };
-    const r = prep({ event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x" }, body: "Use code PAW100 for P100 off grooming!" });
-    expect(r).toMatchObject({ ok: false, reason: "content" });
+    expect(prep({ event: campaignEvent, approval: camp("Use code PAW100 for P100 off grooming!") })).toMatchObject({ ok: false, reason: "content" });
   });
   it("a campaign send is always gated as marketing, whatever the caller intends", () => {
-    // Reviewer probe: promo body, no marketing consent, visit yesterday. Must be blocked.
-    const event = { type: "campaign" as const, campaignId: "c1" };
-    const approval = { type: "campaign" as const, campaignId: "c1", approvedBy: "x" };
     const noConsent = { ...contact, consent: { service: true }, lastVisitOn: "2026-10-29" };
-    expect(prep({ event, approval, contact: noConsent, body: "Clinic news" })).toMatchObject({ ok: false, reason: "no_marketing_consent" });
-    const r = prep({ event, approval, body: "We now offer Saturday hours" });
+    expect(prep({ event: campaignEvent, approval: camp("Clinic news"), contact: noConsent })).toMatchObject({ ok: false, reason: "no_marketing_consent" });
+    const r = prep({ event: campaignEvent, approval: camp("We now offer Saturday hours") });
     expect(r.ok && r.sms.kind).toBe("marketing");
   });
-  it("an approval only covers its own event", () => {
-    expect(prep({ approval: { type: "campaign", campaignId: "unrelated", approvedBy: "x" } })).toMatchObject({ reason: "not_approved" });
-    expect(prep({ approval: { type: "automation", automationId: "recall-rule:other", approvedBy: "x" } })).toMatchObject({ reason: "not_approved" });
-    expect(prep({ approval: { type: "automation", automationId: "reminders", approvedBy: "x" } })).toMatchObject({ reason: "not_approved" });
-  });
-  it("only a person pressing send can go ahead while sync is stale", () => {
+  it("only a named person who saw the stale warning can send while sync is stale", () => {
     const stale = { ...DEFAULT_POLICY, syncHealthy: false };
-    const event = { type: "campaign" as const, campaignId: "c1" };
     expect(prep({ policy: stale })).toMatchObject({ reason: "sync_stale" });
-    expect(prep({ policy: stale, event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x" }, body: "Clinic news" })).toMatchObject({ reason: "sync_stale" });
-    expect(prep({ policy: stale, event, approval: { type: "campaign", campaignId: "c1", approvedBy: "x", sendingNow: true }, body: "Clinic news" }).ok).toBe(true);
+    expect(prep({ policy: stale, event: campaignEvent, approval: camp("Clinic news") })).toMatchObject({ reason: "sync_stale" });
+    expect(prep({ policy: stale, event: campaignEvent, approval: camp("Clinic news", { staleAcknowledgedBy: " " }) })).toMatchObject({ reason: "sync_stale" });
+    const r = prep({ policy: stale, event: campaignEvent, approval: camp("Clinic news", { staleAcknowledgedBy: "staff:7" }) });
+    expect(r.ok && r.sms.staleAcknowledgedBy).toBe("staff:7");
   });
   it("checks clinic-entered footer links for shorteners", () => {
     expect(prep({ clinic: { ...clinic, replyPhone: null, messengerUrl: "https://bit.ly/x" } })).toMatchObject({ ok: false, reason: "content" });
@@ -214,7 +236,7 @@ describe("Semaphore client", () => {
     expect(body.get("message")).toContain("Stop msgs:");
   });
   it("refuses a hand-built message that skipped the pipeline", async () => {
-    const forged = { kind: "recall", mobile: "639171234567", body: "Hello", senderName: "PAWCARE", segments: 1, eventKey: "x" } as PreparedSms;
+    const forged = { kind: "recall", mobile: "639171234567", body: "Hello", senderName: "PAWCARE", segments: 1, eventKey: "x", staleAcknowledgedBy: null } as PreparedSms;
     await expect(new SemaphoreClient("k", fetchReturning([])).send([forged])).rejects.toThrow(/prepareSms/);
   });
   it("reports error objects and failed messages instead of dropping them", async () => {
@@ -268,5 +290,39 @@ describe("reviewer pass 2: import edge cases", () => {
   it("a sync that 'finished' in the future is not trusted", () => {
     const now = new Date("2026-10-30T02:00:00Z");
     expect(syncHealth([{ finishedAt: new Date(now.getTime() + 3600_000), ok: true }], now)).toMatchObject({ healthy: false, reason: "clock_skew" });
+  });
+});
+
+describe("reviewer pass 3: import", () => {
+  const opts = { muted: { mobiles: new Set<string>(), emails: new Set<string>() }, serviceCategories: ["Check-up"], dateBounds: { min: "2000-01-01", max: "2026-10-30" } };
+  it("a stray opening quote rejects the file instead of merging rows", () => {
+    expect(() => parseCsvRows('name,mobile\n"Ana Cruz,09171234567\nBen "Jr" Reyes,09181234567\n')).toThrow(/Malformed quotes/);
+  });
+  it("merges duplicates field by field", () => {
+    const r = importCsv("name,mobile,email,last visit\nAna,09171234567,a@x.com,01/05/2024\nAna,09171234567,,01/05/2025\n", opts);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]).toMatchObject({ email: "a@x.com", lastVisitOn: "2025-01-05" });
+  });
+  it("an email-only person later seen with a mobile stays one contact", () => {
+    const r = importCsv("name,mobile,email,service\nAna,,a@x.com,Check-up\nAna,09171234567,a@x.com,Check-up\n", opts);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]).toMatchObject({ mobile: "639171234567", email: "a@x.com" });
+    expect(r.emailsDropped).toBe(0);
+  });
+  it("counts unusable mobiles, accepts Excel short dates and times", () => {
+    const r = importCsv("name,mobile,email,last visit\nAna,0917-123-456,a@x.com,6/15/25\nBen,09181234567,,2025-06-15 0:00\n", opts);
+    expect(r.unusableMobiles).toBe(1);
+    expect(r.rows.map((x) => x.lastVisitOn)).toEqual(["2025-06-15", "2025-06-15"]);
+  });
+  it("treats spacing, case and Last, First order as the same person", () => {
+    const r = importCsv("name,mobile,service\nAna Cruz,09171234567,Check-up\nAna  Cruz,09171234567,Check-up\n\"CRUZ, ANA\",09171234567,Check-up\n", opts);
+    expect(r.dependentsGrouped).toBe(0);
+    expect(r.rows).toHaveLength(1);
+  });
+  it("aesthetic clinics never group a household; labels lose bracketed notes", () => {
+    const a = importCsv("name,mobile\nAna,09171234567\nBen,09171234567\n", { ...opts, vertical: "aesthetic" });
+    expect(a.rejected).toEqual([{ line: 3, reason: "number already used by another patient" }]);
+    const v = importCsv("owner,patient,species,mobile\nAna,Bantay (on meds) - biter,Aspin,09171234567\n", opts);
+    expect(v.rows[0]).toMatchObject({ assetLabel: "Bantay", species: "dog" });
   });
 });

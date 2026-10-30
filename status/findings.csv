@@ -11,8 +11,8 @@ C9,compliance-guard,risk,Testimonials,Nothing stopped a dental clinic enabling t
 C10,compliance-guard,nit,SMS rules,Shortener check matched substrings (t.co inside other domains),fixed
 C11,compliance-guard,not built yet,Privacy,Data processing agreement template for clinics,open
 C12,compliance-guard,not built yet,Google reviews,Same-link review flow,open
-R1,reviewer,blocker,Recall,Years-old visits would get "you are due" texts (no lookback limit),fixed
-R2,reviewer,blocker,Import,Date fallback invented visit dates (e.g. "12" became 2001-12-01),fixed
+R1,reviewer,blocker,Recall,"Years-old visits would get ""you are due"" texts (no lookback limit)",fixed
+R2,reviewer,blocker,Import,"Date fallback invented visit dates (e.g. ""12"" became 2001-12-01)",fixed
 R3,reviewer,blocker,Send log,Recall and reminder sends were not deduplicated in the database,fixed
 R4,reviewer,blocker,Database,Unformatted mobiles bypassed dedupe and the mute list,fixed
 R5,reviewer,blocker,Send pipeline,"Empty stop link, broken Messenger fallback, no approval required",fixed
@@ -34,3 +34,16 @@ R20,reviewer,should-fix,Privacy,Consent rows could point at another clinic's con
 R21,reviewer,should-fix,Lock-screen privacy,Tagalog affixed forms (magpabunot) passed,fixed
 R22,reviewer,should-fix,Import,"Vet species, stray quotes, shared family numbers, DD/MM files",fixed
 R23,reviewer,nit,Send gate,Two pets due the same day: second pet goes next day (merge later),deferred
+G1,compliance-guard,risk,Approvals,Approval covers the campaign id but not the exact text approved,fixed
+G2,compliance-guard,risk,Sync,Manual send during stale sync has no proof a person saw the warning,fixed
+G3,compliance-guard,risk,Privacy,Household grouping: dependents never named (done); clinic confirms households at import (console),open
+G4,compliance-guard,risk,Lock-screen privacy,"Missed: ortho, veneers, crown, cavity, scaling, wisdom tooth, x-ray",fixed
+G5,compliance-guard,risk,DTI promos,"Missed: libreng, gift, giveaway, prize, buy one take one, half price",fixed
+G6,compliance-guard,risk,Medical claims,"Missed: hindi masakit, before & after, garantisado, risk-free",fixed
+G7,compliance-guard,risk,SMS rules,"Missed shorteners: forms.gle, g.page, maps.app.goo.gl, qrco.de, j.mp",fixed
+G8,compliance-guard,nit,SMS rules,Editing an approved sender name should reset it to pending,fixed
+R24,reviewer,should-fix,Send pipeline,Malformed queue payloads could slip past the type checks,fixed
+R25,reviewer,should-fix,Send pipeline,A comma in the mobile field could add a second recipient,fixed
+R26,reviewer,should-fix,Privacy,An opt-out could be unlinked from a living contact,fixed
+R27,reviewer,should-fix,Send log,A second send for one campaign could slip in under a new key,fixed
+R28,reviewer,should-fix,Import,Merges lost emails; Excel short dates and times were rejected,fixed

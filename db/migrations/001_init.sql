@@ -23,6 +23,17 @@ create table clinics (
   constraint no_dental_testimonials check (not (vertical = 'dental' and testimonials_enabled))
 );
 
+-- Editing a registered sender name puts it back to pending until the new name is registered.
+create function reset_sender_status() returns trigger language plpgsql as $$
+begin
+  if new.sender_name is distinct from old.sender_name and new.sender_name_status = old.sender_name_status then
+    new.sender_name_status := case when new.sender_name is null then 'none' else 'pending' end;
+  end if;
+  return new;
+end $$;
+create trigger clinics_sender_reset before update of sender_name on clinics
+  for each row execute function reset_sender_status();
+
 -- The clinic's own service list. Visits, appointments and recall rules can only use these names,
 -- so free-text clinical detail has nowhere to go.
 create table service_categories (
@@ -75,6 +86,7 @@ create table assets (
   species text check (species in ('dog','cat','bird','rabbit','other')),
   active boolean not null default true,
   unique (clinic_id, id),
+  unique (clinic_id, contact_id, id),
   foreign key (clinic_id, contact_id) references contacts (clinic_id, id) on delete cascade
 );
 
@@ -84,8 +96,10 @@ create table recall_rules (
   service_category_id uuid not null,
   interval_days int not null check (interval_days > 0),
   step_offsets_days int[] not null default '{-7,0,14,60}',
-  active boolean not null default true,
-  approved_by text,                      -- automation approval (locked decision 12)
+  template text not null check (char_length(template) between 1 and 459),  -- the approved wording
+  active boolean not null default false,
+  approved_by text check (char_length(trim(approved_by)) > 0),  -- automation approval (locked decision 12)
+  check (not active or approved_by is not null),
   unique (clinic_id, id),
   foreign key (clinic_id, service_category_id) references service_categories (clinic_id, id)
 );
@@ -136,7 +150,8 @@ create function forbid_consent_changes() returns trigger language plpgsql as $$
 begin
   if tg_op = 'UPDATE'
      and new.contact_id is null and old.contact_id is not null
-     and (to_jsonb(new) - 'contact_id') = (to_jsonb(old) - 'contact_id') then
+     and (to_jsonb(new) - 'contact_id') = (to_jsonb(old) - 'contact_id')
+     and not exists (select 1 from contacts where id = old.contact_id) then
     return new;
   end if;
   raise exception 'consent_events is append-only';
@@ -170,13 +185,39 @@ create table campaigns (
   announcement_type text check (announcement_type in ('spotlight','new_service','clinic_news','care_tip','free_event')),
   body text not null,
   status text not null default 'draft' check (status in ('draft','pending_approval','scheduled','live','paused','ended')),
-  approved_by text,
+  approved_by text check (char_length(trim(approved_by)) > 0),
   scheduled_for timestamptz,
   created_at timestamptz not null default now(),
   unique (clinic_id, id),
   constraint marketing_is_announcement check (kind <> 'marketing' or announcement_type is not null),
   constraint live_needs_approval check (status not in ('scheduled','live') or approved_by is not null)
 );
+
+-- Changing approved wording withdraws the approval (locked decision 12): the text a patient gets
+-- is always the text a person approved.
+create function withdraw_campaign_approval() returns trigger language plpgsql as $$
+begin
+  if new.body is distinct from old.body and new.approved_by is not distinct from old.approved_by then
+    new.approved_by := null;
+    if new.status in ('scheduled','live','pending_approval') then new.status := 'draft'; end if;
+  end if;
+  return new;
+end $$;
+create trigger campaigns_body_change before update of body on campaigns
+  for each row execute function withdraw_campaign_approval();
+
+create function withdraw_rule_approval() returns trigger language plpgsql as $$
+begin
+  if (new.template is distinct from old.template or new.interval_days <> old.interval_days
+      or new.step_offsets_days is distinct from old.step_offsets_days)
+     and new.approved_by is not distinct from old.approved_by then
+    new.approved_by := null;
+    new.active := false;
+  end if;
+  return new;
+end $$;
+create trigger recall_rules_change before update on recall_rules
+  for each row execute function withdraw_rule_approval();
 
 -- Every send is logged against an event (locked decision 11). The event key is unique per contact:
 --   campaign:<campaign_id> | recall:<asset_id>:<rule_id>:<due_on>:<step> | reminder:<appointment_id>:<slot> | feedback:<visit_id>
@@ -193,6 +234,7 @@ create table sends (
   step_offset_days int,
   channel text not null check (channel in ('sms','email')),
   approved_by text not null check (char_length(trim(approved_by)) > 0),
+  stale_ack_by text check (char_length(trim(stale_ack_by)) > 0),  -- who sent while sync was stale
   provider_message_id text,
   segments int check (segments >= 0),
   status text not null default 'queued' check (status in ('queued','accepted','sent','failed','refunded')),
@@ -200,7 +242,7 @@ create table sends (
   unique (clinic_id, contact_id, event_key),
   foreign key (clinic_id, contact_id) references contacts (clinic_id, id) on delete cascade,
   foreign key (clinic_id, campaign_id) references campaigns (clinic_id, id),
-  foreign key (clinic_id, asset_id) references assets (clinic_id, id) on delete set null (asset_id),
+  foreign key (clinic_id, contact_id, asset_id) references assets (clinic_id, contact_id, id) on delete set null (asset_id),
   foreign key (clinic_id, recall_rule_id) references recall_rules (clinic_id, id),
   -- asset_id is not in this check, so a pet or dependent can still be deleted later (set null);
   -- the insert trigger below requires it on new recall rows.
@@ -211,17 +253,29 @@ create table sends (
     (kind = 'marketing' and event_key like 'campaign:%') or
     (kind = 'recall'    and event_key like 'recall:%') or
     (kind = 'reminder'  and event_key like 'reminder:%') or
-    (kind = 'feedback'  and event_key like 'feedback:%'))
+    (kind = 'feedback'  and event_key like 'feedback:%')),
+  -- the key is built from the columns, so the unique index really means one send per campaign / recall step
+  constraint marketing_key_matches check (kind <> 'marketing' or event_key = 'campaign:' || campaign_id::text),
+  constraint recall_key_matches check (kind <> 'recall' or event_key =
+    'recall:' || coalesce(asset_id::text, split_part(event_key, ':', 2)) || ':' || recall_rule_id::text
+    || ':' || to_char(cycle_due_on, 'YYYY-MM-DD') || ':' || step_offset_days::text)
 );
 
 create function recall_send_needs_asset() returns trigger language plpgsql as $$
 begin
-  if new.kind = 'recall' and new.asset_id is null then
+  if tg_op = 'UPDATE' then
+    if new.kind <> old.kind or new.event_key <> old.event_key or new.contact_id <> old.contact_id then
+      raise exception 'a send''s kind, event and contact cannot change';
+    end if;
+    if new.asset_id is distinct from old.asset_id and new.asset_id is not null then
+      raise exception 'a send''s asset can only be cleared';
+    end if;
+  elsif new.kind = 'recall' and new.asset_id is null then
     raise exception 'recall sends must reference an asset';
   end if;
   return new;
 end $$;
-create trigger sends_recall_asset before insert on sends
+create trigger sends_recall_asset before insert or update on sends
   for each row execute function recall_send_needs_asset();
 
 create table sync_runs (

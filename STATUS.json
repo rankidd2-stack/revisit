@@ -33,19 +33,19 @@
         },
         {
           "name": "Send gate: consent, mute, caps, dedupe, quiet hours, sync pause",
-          "state": "in_review"
+          "state": "done"
         },
         {
           "name": "Recall engine: due dates, 4-step sequence, stop on booking",
-          "state": "in_review"
+          "state": "done"
         },
         {
           "name": "CSV import: PH numbers and dates, muted numbers never re-added",
-          "state": "in_review"
+          "state": "done"
         },
         {
           "name": "Semaphore SMS client and SMS cost counter",
-          "state": "in_review"
+          "state": "done"
         },
         {
           "name": "Database wiring and Google Sheet sync",
@@ -147,7 +147,7 @@
     }
   ],
   "tests": {
-    "passing": 97,
+    "passing": 116,
     "failing": 0
   },
   "needsPatrick": [
@@ -168,12 +168,16 @@
       "recommendation": "Claude drafts the email"
     },
     {
-      "item": "Legal check on dental testimonials",
-      "recommendation": "One consult or a Philippine Dental Association inquiry; testimonials stay off for dental until then"
+      "item": "Legal check: dental testimonials, and texting a family number about a dependent (DPA s.13)",
+      "recommendation": "One consult covers both. Testimonials stay off for dental and texts never name treatments for dependents until then"
     },
     {
       "item": "Brand name",
       "recommendation": "Keep Revisit as the working name until clinic feedback"
+    },
+    {
+      "item": "OK to allow the word cleaning/linis/check-up in default texts?",
+      "recommendation": "Yes. Routine care, the clinic name already shows it is a dental visit, and blocking it blocks nearly every recall"
     }
   ],
   "flags": []

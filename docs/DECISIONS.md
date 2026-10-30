@@ -26,3 +26,18 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - NOT CHANGED, by design: "linis" and "oral prophylaxis" (cleaning) are not blocked. Cleaning is the benign default visit; blocking it would block nearly every dental recall.
 - DEFERRED to Phase 3: merging two pets due the same day into one text (the daily cap already stops a second text; the other pet goes the next day), Semaphore 120 calls/min throttle (pilot volume is far below it), per-recipient error detail.
 - Campaigns table is marketing-only. A non-marketing one-off notice (e.g., clinic closed) is a future "service notice" type; needs Patrick's call on consent posture.
+
+## 2026-10-30 -- Phase 1 sign-off (reviewer pass 3: pass; compliance-guard pass 2: pass)
+- Send gate, recall engine, CSV import and Semaphore client milestones closed.
+- Hardening after sign-off, all tested:
+  - Approvals carry the approved template; the pipeline renders the text itself, so patients get the approved wording.
+  - Editing a campaign body or recall template withdraws approval in the DB; active recall rules require approval.
+  - Sending during stale sync needs `staleAcknowledgedBy` (a named person), stored on `sends.stale_ack_by`.
+  - Texts about a dependent never name a treatment, regardless of the clinic opt-in (DPA s.13).
+  - Aesthetic clinics never group households.
+  - Event keys are bound to campaign/recall columns.
+  - Opt-outs can't be unlinked from a living contact; sender name edits reset to pending.
+  - Promo, claim, treatment and shortener lists extended.
+- OPEN for Patrick: allowing cleaning/linis/check-up wording in default texts (recommended yes); legal check on dependent texts, folded into the dental testimonial consult.
+- OPEN, Phase 4: clinic offboarding. `consent_events` blocks deleting a clinic, by design. Offboarding needs an export-then-anonymize path; deleting data is Patrick's call.
+- OPEN, console: the clinic reviews grouped households and picks the holder at import.

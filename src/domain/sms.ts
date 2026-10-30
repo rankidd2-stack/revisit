@@ -53,6 +53,7 @@ export function normalizeForSms(text: string): string {
     .replace(/[–—−]/g, "-")
     .replace(/…/g, "...")
     .replace(/₱\s?/g, "P")
+    .replace(/％/g, "%")
     .replace(/[   ]/g, " ");
 }
 
@@ -83,15 +84,28 @@ export function buildFooter(f: FooterInput): string {
   return `\nReply: ${reply}\nStop msgs: ${url.toString()}`;
 }
 
-const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "goo.gl", "t.co", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "shorturl.at", "s.id", "tiny.cc", "rebrand.ly", "t.ly", "buff.ly", "bitly.com", "bit.do", "shorturl.asia", "lnkd.in"]);
+const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "goo.gl", "t.co", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "shorturl.at", "s.id", "tiny.cc", "rebrand.ly", "t.ly", "buff.ly", "bitly.com", "bit.do", "shorturl.asia", "lnkd.in",
+  "t.me", "j.mp", "qrco.de", "g.page", "forms.gle", "goo.su", "v.gd", "shorte.st", "adf.ly"]);
+/** True if the host or any parent domain is a known shortener (maps.app.goo.gl -> goo.gl). */
+function isShortener(host: string): boolean {
+  const parts = host.split(".");
+  for (let i = 0; i < parts.length - 1; i++) if (SHORTENERS.has(parts.slice(i).join("."))) return true;
+  return false;
+}
 const DISCOUNT_WORDS = [
   /%\s*off/i, /\bsale\b/i, /\bpromo\b/i, /\bdiscount/i, /\bfree with\b/i, /\bbuy\s*1\b/i, /\bless\s+\d/i,
   /\bcodes?\b/i, /\bvouchers?\b/i, /\brewards?\b/i, /\bpoints\b/i, /\bstamps?\b/i, /\braffle/i, /\bcashback\b/i,
   /(?:p|php|₱)\s?\d[\d,]*\s*off/i, /\bbawas\b/i, /\blibre\s+(?:ang|na|sa)\b/i,
+  // purchase-linked freebies, contests and bundles (a free event with no purchase is fine)
+  /\b(?:with|for) every\b/i, /\bsa bawat\b/i, /\bgiveaways?\b/i, /\bfreebies?\b/i, /\bprizes?\b/i, /\bwin\b/i,
+  /\bcontests?\b/i, /\bbuy\s*(?:1|one)\b/i, /\btake\s*(?:1|one)\b/i, /\bhalf[- ]?price\b/i,
+  /\bsave\s*(?:p|php|₱)?\s?\d/i, /\bbundles?\b/i, /%\s*less\b/i, /\bfree gift\b/i,
 ];
 const CLAIM_WORDS = [
   /\bpainless\b/i, /\bpain[- ]free\b/i, /\bno pain\b/i, /\bwalang sakit\b/i, /\bguarantee/i, /\bcure[sd]?\b/i,
-  /100\s*%/i, /\bpermanent results?\b/i, /\bbefore[- ]and[- ]after\b/i, /\binstant results?\b/i, /\b(?:totally|completely|100%) safe\b/i,
+  /100\s*%/i, /\bpermanent results?\b/i, /\bbefore\s*(?:-|&|\/|and)\s*after\b/i, /\binstant results?\b/i, /\b(?:totally|completely|100%) safe\b/i,
+  /\b(?:hindi|di) masakit\b/i, /\bgarantisado\b/i, /\bsigurado(?:ng)? resulta\b/i, /\brisk[- ]free\b/i,
+  /\bno side effects?\b/i, /\bsafe and effective\b/i,
 ];
 
 /** Hostnames of every URL-like token, tolerant of trailing punctuation and wrapping brackets. */
@@ -123,7 +137,8 @@ export interface ContentCheckOptions {
 // only block euthanasia wording by default.
 const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
   human: ["extraction", "root canal", "rct", "botox", "filler", "brace", "denture", "implant", "whitening",
-    "gum disease", "laser", "filling", "retainer", "aligner", "orthodont"],
+    "gum disease", "laser", "filling", "retainer", "aligner", "ortho", "veneer", "crown", "cavit", "scaling", "wisdom tooth", "surger",
+    "x-ray", "xray", "periodont"],
   vet: ["euthan"],
 };
 const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
@@ -136,7 +151,7 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
     issues.push({ code: "starts_with_test", message: "Semaphore silently drops texts that begin with TEST." });
   }
   for (const host of hostnames(body)) {
-    if (SHORTENERS.has(host)) issues.push({ code: "url_shortener", message: `${host} links are blocked by Smart.` });
+    if (isShortener(host)) issues.push({ code: "url_shortener", message: `${host} links are blocked by Smart.` });
   }
   if (opts.kind === "marketing") {
     for (const re of DISCOUNT_WORDS) {

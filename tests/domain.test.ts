@@ -180,3 +180,22 @@ describe("reviewer pass 2: content", () => {
     expect(measureSms(normalizeForSms("Fee is ₱500")).encoding).toBe("GSM-7");
   });
 });
+
+describe("compliance pass 2: word lists", () => {
+  const mk = (b: string) => checkContent(normalizeForSms(b), { kind: "marketing", vertical: "dental", nameTreatmentsAllowed: false }).map((i) => i.code);
+  it("flags purchase-linked freebies, contests and bundles, but not a plain free event", () => {
+    for (const b of ["Libreng check-up with every cleaning", "Giveaway! Win a prize", "Buy one take one", "Half price this week", "Save P500", "20％ off", "20% less"]) {
+      expect(mk(b)).toContain("discount_wording");
+    }
+    expect(mk("Free dental check-up day this Saturday")).not.toContain("discount_wording");
+  });
+  it("flags Filipino and shorthand results claims", () => {
+    for (const b of ["Hindi masakit", "See our before & after", "Garantisado", "Risk-free", "No side effects"]) expect(mk(b)).toContain("medical_claim");
+  });
+  it("flags more dental treatments", () => {
+    for (const b of ["ortho adjustment", "veneers", "crown", "cavity", "scaling", "wisdom tooth", "oral surgery", "x-ray"]) expect(mk(b)).toContain("names_treatment");
+  });
+  it("matches shorteners by parent domain", () => {
+    for (const b of ["maps.app.goo.gl/x", "g.page/x", "forms.gle/x", "qrco.de/x", "j.mp/x", "t.me/x"]) expect(mk(b)).toContain("url_shortener");
+  });
+});

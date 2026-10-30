@@ -26,7 +26,15 @@ export function parseCsvRows(text: string): CsvRow[] {
     if (ch === "\n") line++;
     if (quoted) {
       if (ch === '"' && src[i + 1] === '"') { field += '"'; i++; }
-      else if (ch === '"') quoted = false;
+      else if (ch === '"') {
+        // A closing quote must end the field; anything else means a stray opening quote that
+        // would merge rows, so reject the file instead of guessing.
+        const next = src[i + 1];
+        if (next !== undefined && next !== "," && next !== "\n" && next !== "\r") {
+          throw new Error(`Malformed quotes on line ${line}; fix the file and import again.`);
+        }
+        quoted = false;
+      }
       else field += ch;
     } else if (ch === '"' && field === "") quoted = true;
     else if (ch === ",") { row.push(field); field = ""; }
@@ -92,11 +100,14 @@ export interface DateBounds { min: string; max: string }   // inclusive, YYYY-MM
  */
 export function normalizeDate(raw: string | undefined, bounds?: DateBounds, order: "MDY" | "DMY" = "MDY"): string | null {
   if (!raw) return null;
-  const s = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  // Spreadsheet exports often add a time ("6/15/2025 0:00" or "2025-06-15T00:00:00"); drop it.
+  const s = raw.trim().toLowerCase().replace(/\s+/g, " ")
+    .replace(/(?:t| )\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?: ?[ap]\.?m\.?)?z?$/, "");
   let y: number, mo: number, d: number, m: RegExpMatchArray | null;
   if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) { y = +m[1]!; mo = +m[2]!; d = +m[3]!; }
-  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) {
-    [mo, d] = order === "DMY" ? [+m[2]!, +m[1]!] : [+m[1]!, +m[2]!]; y = +m[3]!;
+  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/))) {
+    [mo, d] = order === "DMY" ? [+m[2]!, +m[1]!] : [+m[1]!, +m[2]!];
+    y = m[3]!.length === 2 ? 2000 + +m[3]! : +m[3]!;   // Excel short dates; visits before 2000 are out of bounds anyway
   }
   else if ((m = s.match(/^([a-z]+)\.? (\d{1,2}),? (\d{4})$/))) { mo = MONTHS.indexOf(m[1]!.slice(0, 3)) + 1; d = +m[2]!; y = +m[3]!; }
   else if ((m = s.match(/^(\d{1,2}) ([a-z]+)\.?,? (\d{4})$/))) { d = +m[1]!; mo = MONTHS.indexOf(m[2]!.slice(0, 3)) + 1; y = +m[3]!; }
@@ -110,8 +121,8 @@ export function normalizeDate(raw: string | undefined, bounds?: DateBounds, orde
 }
 
 const SPECIES: [RegExp, "dog" | "cat" | "bird" | "rabbit"][] = [
-  [/^(dog|dogs|canine|k9|k-9|puppy|aso|tuta)$/i, "dog"],
-  [/^(cat|cats|feline|kitten|pusa|kuting)$/i, "cat"],
+  [/^(dog|dogs|canine|k9|k-9|puppy|aso|tuta|aspin|askal)$/i, "dog"],
+  [/^(cat|cats|feline|kitten|pusa|kuting|puspin)$/i, "cat"],
   [/^(bird|avian|parrot|ibon)$/i, "bird"],
   [/^(rabbit|bunny|kuneho)$/i, "rabbit"],
 ];
@@ -129,7 +140,7 @@ export function normalizeSpecies(raw: string | undefined): "dog" | "cat" | "bird
 export function detectDateOrder(values: (string | undefined)[]): "MDY" | "DMY" {
   let dayFirst = false, monthFirst = false;
   for (const v of values) {
-    const m = v?.trim().match(/^(\d{1,2})\/(\d{1,2})\/\d{4}$/);
+    const m = v?.trim().match(/^(\d{1,2})\/(\d{1,2})\/(?:\d{4}|\d{2})\b/);
     if (!m) continue;
     if (+m[1]! > 12) dayFirst = true;
     if (+m[2]! > 12) monthFirst = true;
@@ -161,6 +172,7 @@ export interface ImportResult {
   mergedDuplicates: number;   // same person and asset twice in one file; latest visit kept
   dependentsGrouped: number;  // rows whose name differed from the number's first holder; filed as dependents
   emailsDropped: number;      // email already belonged to another contact in this file
+  unusableMobiles: number;    // mobile present but not a PH mobile; row kept if it has an email
   dateOrder: "MDY" | "DMY";   // shown to the clinic so they can confirm before import
 }
 
@@ -173,6 +185,33 @@ export interface ImportOptions {
   /** Visit dates outside these bounds are rejected. Default: 2000-01-01 to today. */
   dateBounds: DateBounds;
   mapping?: Partial<Record<TargetField, number>>;
+  /** Aesthetic clinics never group a household under one number (more sensitive services). */
+  vertical?: "dental" | "vet" | "aesthetic" | "other";
+}
+
+/** Same person despite spacing, case or "Last, First" order. */
+function sameName(a: string, b: string): boolean {
+  const tokens = (n: string) => n.toLowerCase().replace(/[.,]/g, " ").split(/\s+/).filter(Boolean).sort().join(" ");
+  return tokens(a) === tokens(b);
+}
+
+/** Labels are names only: drop bracketed notes and anything after a dash ("Bantay (on meds) - biter"). */
+function cleanLabel(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const v = raw.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").split(/\s[-\u2013\u2014]\s/)[0]!.replace(/\s+/g, " ").trim().slice(0, 30);
+  return v || null;
+}
+
+/** Same person, asset and service twice: keep the latest visit, but never lose a field the other row had. */
+function mergeRows(a: ImportedRow, b: ImportedRow): ImportedRow {
+  const [newer, older] = (b.lastVisitOn ?? "") > (a.lastVisitOn ?? "") ? [b, a] : [a, b];
+  return {
+    ...newer,
+    email: newer.email ?? older.email,
+    externalRef: newer.externalRef ?? older.externalRef,
+    species: newer.species ?? older.species,
+    line: Math.min(a.line, b.line),
+  };
 }
 
 function matchCategory(raw: string | undefined, categories: string[]): string | null {
@@ -189,7 +228,7 @@ function matchCategory(raw: string | undefined, categories: string[]): string | 
 export function importCsv(text: string, opts: ImportOptions): ImportResult {
   const { muted, serviceCategories, mapping, dateBounds } = opts;
   const [header, ...data] = parseCsvRows(text);
-  const out: ImportResult = { rows: [], rejected: [], skippedMuted: 0, unmappedServices: 0, mergedDuplicates: 0, dependentsGrouped: 0, emailsDropped: 0, dateOrder: "MDY" };
+  const out: ImportResult = { rows: [], rejected: [], skippedMuted: 0, unmappedServices: 0, mergedDuplicates: 0, dependentsGrouped: 0, emailsDropped: 0, unusableMobiles: 0, dateOrder: "MDY" };
   if (!header) return out;
   const map = mapping ?? guessMapping(header.cells);
   if (map.full_name === undefined) throw new Error("No name column found; map columns manually.");
@@ -199,12 +238,16 @@ export function importCsv(text: string, opts: ImportOptions): ImportResult {
 
   // One contact per mobile (or email if there is no mobile). In PH a parent's number often covers
   // the whole family: the first name seen holds the number, later names become dependents.
+  // Aesthetic clinics don't group: a second name on a number is rejected for the clinic to sort out.
   const holderName = new Map<string, string>();     // contact key -> holder's name
   const emailOwner = new Map<string, string>();     // email -> contact key
   const byKey = new Map<string, ImportedRow>();
+  const group = opts.vertical !== "aesthetic";
+
   for (const { cells: r, line } of data) {
     const fullName = get(r, "full_name");
     if (!fullName) { out.rejected.push({ line, reason: "missing name" }); continue; }
+    if (/[\r\n]/.test(fullName)) { out.rejected.push({ line, reason: "name spans several lines" }); continue; }
     const rawMobile = get(r, "mobile");
     const mobile = normalizePhMobile(rawMobile);
     const rawEmail = get(r, "email")?.toLowerCase();
@@ -214,6 +257,7 @@ export function importCsv(text: string, opts: ImportOptions): ImportResult {
       continue;
     }
     if ((mobile && muted.mobiles.has(mobile)) || (email && muted.emails.has(email))) { out.skippedMuted++; continue; }
+    if (rawMobile && !mobile) out.unusableMobiles++;
     const rawService = get(r, "service_category");
     const serviceCategory = matchCategory(rawService, serviceCategories);
     if (rawService && !serviceCategory) out.unmappedServices++;
@@ -221,6 +265,10 @@ export function importCsv(text: string, opts: ImportOptions): ImportResult {
     const lastVisitOn = normalizeDate(rawDate, dateBounds, out.dateOrder);
     if (rawDate && !lastVisitOn) { out.rejected.push({ line, reason: "unreadable or out-of-range date" }); continue; }
 
+    // A mobile row for someone first seen email-only: move that contact onto the mobile.
+    if (mobile && email && emailOwner.get(email) === email && !holderName.has(mobile)) {
+      rekey(email, mobile);
+    }
     const contactKey = mobile ?? emailOwner.get(email!) ?? email!;
     let rowEmail = email;
     if (email) {
@@ -229,11 +277,12 @@ export function importCsv(text: string, opts: ImportOptions): ImportResult {
       else if (owner !== contactKey) { rowEmail = null; out.emailsDropped++; }
     }
     const holder = holderName.get(contactKey);
+    const sameHolder = !holder || sameName(holder, fullName);
+    if (!sameHolder && !group) { out.rejected.push({ line, reason: "number already used by another patient" }); continue; }
     if (!holder) holderName.set(contactKey, fullName);
-    const sameHolder = !holder || holder.toLowerCase() === fullName.toLowerCase();
-    let assetLabel = get(r, "asset_label") ?? null;
+    let assetLabel = cleanLabel(get(r, "asset_label"));
     let assetKind: ImportedRow["assetKind"] = hasPetColumn && assetLabel ? "pet" : "self";
-    if (!sameHolder && assetKind === "self") { assetLabel = fullName.slice(0, 60); assetKind = "dependent"; out.dependentsGrouped++; }
+    if (!sameHolder && assetKind === "self") { assetLabel = cleanLabel(fullName); assetKind = "dependent"; out.dependentsGrouped++; }
 
     const row: ImportedRow = {
       fullName: holder ?? fullName, mobile, email: rowEmail,
@@ -244,10 +293,17 @@ export function importCsv(text: string, opts: ImportOptions): ImportResult {
     };
     const key = `${contactKey}|${(assetLabel ?? "").toLowerCase()}|${serviceCategory ?? ""}`;
     const prev = byKey.get(key);
-    if (prev) {
-      out.mergedDuplicates++;
-      if ((row.lastVisitOn ?? "") > (prev.lastVisitOn ?? "")) byKey.set(key, row);
-    } else byKey.set(key, row);
+    if (prev) { out.mergedDuplicates++; byKey.set(key, mergeRows(prev, row)); }
+    else byKey.set(key, row);
+  }
+
+  function rekey(from: string, to: string) {
+    holderName.set(to, holderName.get(from)!);
+    holderName.delete(from);
+    emailOwner.set(from, to);
+    for (const [k, v] of [...byKey]) {
+      if (k.startsWith(`${from}|`)) { byKey.delete(k); byKey.set(`${to}${k.slice(from.length)}`, { ...v, mobile: to }); }
+    }
   }
   out.rows = [...byKey.values()].sort((a, b) => a.line - b.line);
   return out;
