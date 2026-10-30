@@ -1,0 +1,108 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { readFileSync } from "node:fs";
+import { applySync } from "../src/sync/apply.js";
+import { syncHealth } from "../src/sync/health.js";
+import { fetchSheetCsv, sheetCsvUrl, sheetIdFromLink } from "../src/sync/sheet.js";
+
+const now = new Date("2026-10-30T02:00:00Z");
+let db: PGlite, clinic: string;
+const count = async (t: string) => Number((await db.query<{ n: string }>(`select count(*) n from ${t}`)).rows[0]!.n);
+
+beforeEach(async () => {
+  db = new PGlite();
+  await db.exec(readFileSync(new URL("../db/migrations/001_init.sql", import.meta.url), "utf8"));
+  clinic = (await db.query<{ id: string }>(`insert into clinics (name, vertical) values ('Paw Care', 'vet') returning id`)).rows[0]!.id;
+  await db.query(`insert into service_categories (clinic_id, name) values ($1, 'Rabies vaccine')`, [clinic]);
+});
+
+const FILE = "Owner,Mobile,Pet,Species,Service,Last visit\nAna Cruz,09171234567,Bantay,dog,Rabies vaccine,2026-06-01\n";
+
+describe("applySync", () => {
+  it("writes contacts, pets and visits and logs an ok run", async () => {
+    const o = await applySync(db, clinic, FILE, "csv", now);
+    expect(o).toMatchObject({ ok: true, contactsAdded: 1, visitsAdded: 1 });
+    expect(await count("contacts")).toBe(1);
+    expect(await count("assets")).toBe(1);
+    const run = (await db.query<{ ok: boolean; rows_in: number }>(`select ok, rows_in from sync_runs`)).rows[0]!;
+    expect(run).toMatchObject({ ok: true, rows_in: 1 });
+  });
+
+  it("is idempotent: syncing the same file twice adds nothing", async () => {
+    await applySync(db, clinic, FILE, "csv", now);
+    const o = await applySync(db, clinic, FILE, "csv", now);
+    expect(o).toMatchObject({ ok: true, contactsAdded: 0, visitsAdded: 0 });
+    expect(await count("contacts")).toBe(1);
+    expect(await count("assets")).toBe(1);
+    expect(await count("visits")).toBe(1);
+  });
+
+  it("never re-adds a muted number", async () => {
+    await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'mobile', '639171234567', 'stop_link')`, [clinic]);
+    const o = await applySync(db, clinic, FILE, "csv", now);
+    expect(o.result!.skippedMuted).toBe(1);
+    expect(await count("contacts")).toBe(0);
+  });
+
+  it("leaves clinic-owned status alone: a do_not_contact contact is not revived or given visits", async () => {
+    await db.query(`insert into contacts (clinic_id, full_name, mobile, status) values ($1, 'Ana Cruz', '639171234567', 'do_not_contact')`, [clinic]);
+    const o = await applySync(db, clinic, FILE, "csv", now);
+    expect(o.contactsSkippedInactive).toBe(1);
+    expect((await db.query<{ status: string }>(`select status from contacts`)).rows[0]!.status).toBe("do_not_contact");
+    expect(await count("visits")).toBe(0);
+  });
+
+  it("keeps the clinic's name for an existing contact and fills a missing email", async () => {
+    await db.query(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Ana C.', '639171234567')`, [clinic]);
+    await applySync(db, clinic, "Owner,Mobile,Email,Pet,Service,Last visit\nAna Cruz,09171234567,ana@x.com,Bantay,Rabies vaccine,2026-06-01\n", "csv", now);
+    const c = (await db.query<{ full_name: string; email: string }>(`select full_name, email from contacts`)).rows[0]!;
+    expect(c).toEqual({ full_name: "Ana C.", email: "ana@x.com" });
+  });
+
+  it("logs a failed run with a fixed code and no file content when the file is unreadable", async () => {
+    const o = await applySync(db, clinic, 'Owner,Mobile\n"Ana,0917', "csv", now);
+    expect(o).toMatchObject({ ok: false, errorCode: "unreadable_file" });
+    const run = (await db.query<{ ok: boolean; error_code: string }>(`select ok, error_code from sync_runs`)).rows[0]!;
+    expect(run).toEqual({ ok: false, error_code: "unreadable_file" });
+    expect(await count("contacts")).toBe(0);
+  });
+
+  it("a failed sync pauses automated sends via syncHealth, a later good one resumes them", async () => {
+    const runs = async () => (await db.query<{ finished_at: Date; ok: boolean }>(`select finished_at, ok from sync_runs`)).rows
+      .map((r) => ({ finishedAt: new Date(r.finished_at), ok: r.ok }));
+    await applySync(db, clinic, "garbage with no name column\n1\n", "csv", new Date());
+    expect(syncHealth(await runs(), new Date())).toMatchObject({ healthy: false });
+    await new Promise((r) => setTimeout(r, 5));
+    await applySync(db, clinic, FILE, "csv", new Date());
+    expect(syncHealth(await runs(), new Date())).toMatchObject({ healthy: true });
+  });
+
+  it("rolls back everything if a write fails midway", async () => {
+    // force a failure after the contact and pet rows are written
+    await db.exec(`alter table visits rename to visits_x`);
+    const o = await applySync(db, clinic, FILE, "csv", now);
+    expect(o).toMatchObject({ ok: false, errorCode: "apply_failed" });
+    expect(await count("contacts")).toBe(0);
+    expect(await count("assets")).toBe(0);
+  });
+});
+
+describe("google sheet fetch", () => {
+  const id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+  it("builds an export url only for well-formed ids and tabs", () => {
+    expect(sheetCsvUrl(id)).toBe(`https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=0`);
+    expect(() => sheetCsvUrl("../../evil")).toThrow("bad_sheet_id");
+    expect(() => sheetCsvUrl(id, "0&x=1")).toThrow("bad_sheet_tab");
+  });
+  it("pulls the id from a pasted link", () => {
+    expect(sheetIdFromLink(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`)).toBe(id);
+    expect(sheetIdFromLink("nope")).toBeNull();
+  });
+  it("reports private sheets, http errors and oversize files as codes", async () => {
+    const f = (ok: boolean, status: number, body: string) => async () => ({ ok, status, text: async () => body });
+    await expect(fetchSheetCsv(f(true, 200, "<!DOCTYPE html><html>sign in"), id)).rejects.toThrow("sheet_not_shared");
+    await expect(fetchSheetCsv(f(false, 404, ""), id)).rejects.toThrow("sheet_http_404");
+    await expect(fetchSheetCsv(f(true, 200, "a".repeat(5_000_001)), id)).rejects.toThrow("sheet_too_large");
+    await expect(fetchSheetCsv(f(true, 200, "Name\nAna"), id)).resolves.toBe("Name\nAna");
+  });
+});
