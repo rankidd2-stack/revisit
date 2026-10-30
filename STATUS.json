@@ -48,7 +48,19 @@
           "state": "done"
         },
         {
-          "name": "Database wiring and Google Sheet sync",
+          "name": "Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",
+          "state": "in_progress"
+        },
+        {
+          "name": "Database wiring 2: write imports and sync runs to Postgres; muted never re-added, clinic-owned status kept",
+          "state": "todo"
+        },
+        {
+          "name": "Google Sheet sync: scheduled pull into the import path; failed or stale sync pauses sends and alerts the clinic",
+          "state": "todo"
+        },
+        {
+          "name": "Philippines market pack: +63 numbers, Asia/Manila, Semaphore and word lists behind one module",
           "state": "todo"
         }
       ]

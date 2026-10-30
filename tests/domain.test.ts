@@ -3,6 +3,7 @@ import { nextRecallStep, type RecallRule } from "../src/domain/recall.js";
 import { checkEligibility, DEFAULT_POLICY, type ContactState } from "../src/domain/eligibility.js";
 import { buildFooter, checkContent, measureSms, normalizeForSms, smsCostCentavos } from "../src/domain/sms.js";
 import { manilaDate, manilaHour, manilaInstant } from "../src/domain/time.js";
+import { latestConsent, latestVisit, type ConsentRecord } from "../src/domain/contact-state.js";
 
 const cleaning: RecallRule = { serviceCategory: "Dental check-up", intervalDays: 180, stepOffsetsDays: [-7, 0, 14, 60] };
 const base = { rule: cleaning, lastVisitOn: "2026-01-01", hasUpcomingAppointment: false, stepsAlreadySent: [] as number[] };
@@ -197,5 +198,44 @@ describe("compliance pass 2: word lists", () => {
   });
   it("matches shorteners by parent domain", () => {
     for (const b of ["maps.app.goo.gl/x", "g.page/x", "forms.gle/x", "qrco.de/x", "j.mp/x", "t.me/x"]) expect(mk(b)).toContain("url_shortener");
+  });
+});
+
+describe("contact state", () => {
+  const at = (iso: string) => new Date(iso);
+  const rec = (purpose: ConsentRecord["purpose"], granted: boolean, iso: string, linked = true): ConsentRecord =>
+    ({ purpose, granted, recordedAt: at(iso), linked });
+
+  it("the newest consent row wins per purpose; none recorded stays unknown", () => {
+    expect(latestConsent([])).toEqual({});
+    expect(latestConsent([
+      rec("marketing", true, "2026-01-01T00:00:00Z"),
+      rec("marketing", false, "2026-03-01T00:00:00Z"),
+      rec("service", false, "2026-01-01T00:00:00Z"),
+      rec("service", true, "2026-02-01T00:00:00Z"),
+    ])).toEqual({ marketing: false, service: true });
+    // Order of rows from the database doesn't matter.
+    expect(latestConsent([rec("marketing", false, "2026-03-01T00:00:00Z"), rec("marketing", true, "2026-01-01T00:00:00Z")])).toEqual({ marketing: false });
+  });
+  it("on a tie the opt-out wins, whichever row comes first", () => {
+    const t = "2026-05-01T00:00:00Z";
+    expect(latestConsent([rec("marketing", true, t), rec("marketing", false, t)])).toEqual({ marketing: false });
+    expect(latestConsent([rec("marketing", false, t), rec("marketing", true, t)])).toEqual({ marketing: false });
+  });
+  it("an erased contact's opt-out still counts; its opt-in never transfers", () => {
+    expect(latestConsent([rec("marketing", true, "2026-01-01T00:00:00Z", false)])).toEqual({});
+    expect(latestConsent([rec("service", false, "2026-01-01T00:00:00Z", false)])).toEqual({ service: false });
+    // A newer opt-in by the new contact itself overrides an old orphaned opt-out.
+    expect(latestConsent([rec("marketing", false, "2026-01-01T00:00:00Z", false), rec("marketing", true, "2026-06-01T00:00:00Z")])).toEqual({ marketing: true });
+  });
+  it("testimonial consent never counts as service or marketing consent", () => {
+    expect(latestConsent([rec("testimonial", true, "2026-01-01T00:00:00Z")])).toEqual({});
+  });
+  it("latest visit takes recorded visits and completed appointments on the Manila calendar", () => {
+    expect(latestVisit([], [])).toBeNull();
+    expect(latestVisit([null], [null])).toBeNull();
+    expect(latestVisit(["2026-10-01", "2026-09-01"], [])).toBe("2026-10-01");
+    // 17:30 UTC on Oct 30 is 01:30 on Oct 31 in Manila.
+    expect(latestVisit(["2026-10-01"], [at("2026-10-30T17:30:00Z")])).toBe("2026-10-31");
   });
 });
