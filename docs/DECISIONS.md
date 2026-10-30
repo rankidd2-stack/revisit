@@ -41,3 +41,9 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - OPEN for Patrick: allowing cleaning/linis/check-up wording in default texts (recommended yes); legal check on dependent texts, folded into the dental testimonial consult.
 - OPEN, Phase 4: clinic offboarding. `consent_events` blocks deleting a clinic, by design. Offboarding needs an export-then-anonymize path; deleting data is Patrick's call.
 - OPEN, console: the clinic reviews grouped households and picks the holder at import.
+
+## 2026-10-30 -- Placeholder name "Revisit"
+- Patrick: brand must be global, no Filipino words. Placeholder "Revisit" until he picks the brand.
+- Stop-link domain in tests is now revisit.example (placeholder until a real domain is bought).
+- Kept on purpose: the Tagalog/Taglish wording checks (bunot, pasta, hindi masakit, etc.). They are compliance filters for PH texts, not branding.
+- Next (Claude decides, code structure): move PH specifics (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists) into a "Philippines market pack" during database wiring, so the core is country-neutral.

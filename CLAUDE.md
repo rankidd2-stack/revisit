@@ -1,4 +1,4 @@
-# Revisit -- clinic retention console (working name)
+# Revisit -- clinic retention console (placeholder name)
 
 Clinic-facing tool that brings existing patients back. Philippines first, dental and vet first.
 Owner: Patrick. Builder: Claude (main session). Full spec: the "Clinic Retention Engine (PH)" doc,

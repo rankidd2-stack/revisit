@@ -1,5 +1,5 @@
 {
-  "project": "Revisit (working name) -- clinic retention console",
+  "project": "Revisit (placeholder name) -- clinic retention console",
   "lastUpdated": "2026-10-30",
   "currentPhase": 1,
   "phases": [
@@ -173,7 +173,7 @@
     },
     {
       "item": "Brand name",
-      "recommendation": "Keep Revisit as the working name until clinic feedback"
+      "recommendation": "Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains"
     },
     {
       "item": "OK to allow the word cleaning/linis/check-up in default texts?",
