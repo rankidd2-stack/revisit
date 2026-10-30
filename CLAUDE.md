@@ -45,4 +45,5 @@ compliance-guard before merge, anything in Patrick's decision rights parked as a
 - Philippine mobile numbers are stored as 639XXXXXXXXX.
 - Time zone: Asia/Manila for all scheduling and quiet hours.
 - User-facing copy: no em dashes.
+- UI follows design/README.md. Colors, type, spacing and radii come only from design/tokens.css; brand color is Revisit Green.
 - Commands: `npm test`, `npm run typecheck`.
