@@ -230,7 +230,8 @@ describe("send pipeline", () => {
     // Texts about a dependent stay strict until the legal check (DPA s.13).
     expect(prep({ clinic: dental, subject: "dependent", approval: auto("recall-rule:r1", { template: "Hi {first_name}, Mika's dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
     // R50: another person, or a missing or unknown subject from an untyped payload, gets the strict rules.
-    for (const subject of ["other", undefined, "Self", ""]) {
+    // G15: a package may be a child's, so it is strict too.
+    for (const subject of ["other", "package", undefined, "Self", ""]) {
       expect(prep({ clinic: dental, subject: subject as never, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
     }
     expect(prep({ clinic: dental, subject: "self", approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: true });

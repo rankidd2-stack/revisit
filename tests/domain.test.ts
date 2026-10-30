@@ -353,9 +353,9 @@ describe("reviewer pass 6: category words match whole and short words count", ()
     expect(codes("Mika's cleaning and check-up are due", ["Cleaning and check-up"], false)).toContain("names_treatment");
   });
   it("R56: the block message names the clinic service the word came from", () => {
-    const msg = dental("Your consultation for HIV is due", ["HIV consultation"]).map((i) => i.message).join(" ");
-    expect(msg).toContain('"hiv"');
-    expect(msg).toContain('clinic service "HIV consultation"');
+    const msg = dental("Your consultation for fluoride is due", ["Fluoride consultation"]).map((i) => i.message).join(" ");
+    expect(msg).toContain('"fluoride"');
+    expect(msg).toContain('clinic service "Fluoride consultation"');
   });
   it("Patrick: English words only; linis and konsulta are not on the allowlist", () => {
     expect(codes("Oras na ng linis mo", ["Linis"])).toContain("names_treatment");
@@ -369,5 +369,41 @@ describe("reviewer pass 6: category words match whole and short words count", ()
     const aesthetic = (b: string, t: string[]) => checkContent(b, { kind: "recall", vertical: "aesthetic", nameTreatmentsAllowed: false, sensitiveTerms: t, allowVisitWords: true }).map((i) => i.code);
     expect(aesthetic("Your consultation is due", ["Consultation"])).toEqual([]);
     expect(aesthetic("Your skin consultation is due", ["Skin consultation"])).toContain("names_treatment");
+  });
+});
+
+describe("reviewer round 4 and compliance pass 4", () => {
+  const codes = (body: string, sensitiveTerms: string[], allowVisitWords = true) =>
+    checkContent(body, { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false, sensitiveTerms, allowVisitWords }).map((i) => i.code);
+
+  it("R58/R63: a category of 4+ letters blocks its longer forms; a short one stays whole-word", () => {
+    expect(codes("Your psychiatry visit is due", ["Psych"])).toContain("names_treatment");
+    expect(codes("Your oncology follow-up is due", ["Onco"])).toContain("names_treatment");
+    expect(codes("Your dermatology visit is due", ["Derma"])).toContain("names_treatment");
+    expect(codes("Your cardiology visit is due", ["Cardio consultation"])).toContain("names_treatment");
+    expect(codes("We still have slots for your visit", ["STI"])).toEqual([]);
+  });
+  it("R59: numbers and time units in a category never block alone", () => {
+    expect(codes("Your visit on Oct 30 is due", ["Cleaning (30 min)"])).toEqual([]);
+    expect(codes("See you next month for your check-up", ["6-month check-up"])).toEqual([]);
+  });
+  it("R60: a doctor's name in a category never blocks alone", () => {
+    expect(codes("Hi Ana, your check-up is due", ["Consultation with Dra. Ana"])).toEqual([]);
+    expect(codes("Hi Ana, your check-up is due", ["Dr Ana consultation"])).toEqual([]);
+  });
+  it("R61: known limit, kept on purpose: a plain space inside a clinic word is not rejoined", () => {
+    expect(codes("Your pre natal visit is due", ["Prenatal"])).toEqual([]);
+  });
+  it("R62: blank characters that count as letters can't hide a word", () => {
+    expect(codes("Your deep\u3164cleaning is due", ["Deep cleaning"])).toContain("names_treatment");
+    expect(codes("Your deep\u2800cleaning is due", ["Deep cleaning"])).toContain("names_treatment");
+  });
+  it("G14: sensitive care before an allowed word blocks even when the clinic's only category is Check-up", () => {
+    for (const b of ["Your STD check-up is due", "Your pregnancy check-up is due", "Your pap smear consultation is due",
+      "Your OB-GYN check-up is due", "Your HIV consultation is due", "Your psychiatric consultation is due", "Your prenatal check-up is due"]) {
+      expect(codes(b, ["Check-up", "Consultation"])).toContain("names_treatment");
+    }
+    // Ordinary words that start like a short stem still pass.
+    expect(codes("We still have a slot; your check-up is due", ["Check-up"])).toEqual([]);
   });
 });

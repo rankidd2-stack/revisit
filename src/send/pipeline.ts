@@ -44,9 +44,10 @@ export type SendEvent =
 
 /** Who the text is about (assets.kind). Texts about another person never name a treatment (DPA s.13). */
 export type Subject = "self" | "dependent" | "pet" | "package" | "other";
-// Subjects that are the contact themself or not a person. Anything else, including a missing or
-// unknown value from an untyped queue payload, is treated as someone else: strict.
-const ABOUT_CONTACT_OR_PET: ReadonlySet<unknown> = new Set<Subject>(["self", "pet", "package"]);
+// Subjects that are the contact themself or a pet. Anything else is treated as someone else: strict.
+// That includes "package" (assets record no owner, so it may be a child's braces package) and a
+// missing or unknown value from an untyped queue payload.
+const ABOUT_CONTACT_OR_PET: ReadonlySet<unknown> = new Set<Subject>(["self", "pet"]);
 
 const unknownEvent = (e: never): never => { throw new Error(`Unknown send event type: ${String((e as { type?: unknown })?.type)}`); };
 

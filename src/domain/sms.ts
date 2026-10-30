@@ -133,14 +133,20 @@ export interface ContentCheckOptions {
 }
 
 // Human treatments are health data under the DPA, so they stay off lock screens by default.
-// English stems match from a word start ("brace" matches "braces"). Filipino stems match anywhere in
+// English stems match from a word start ("brace" matches "braces"); stems of 3 letters or fewer
+// ("rct", "sti") match as whole words so they never hit ordinary words. Filipino stems match anywhere in
 // a word, because Tagalog affixes and infixes wrap the root: magpabunot, pinapastahan, nagpapustiso.
 // Pet care (vaccines, deworming) is not human health data and is useful in a reminder, so vets
 // only block euthanasia wording by default.
 const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
   human: ["extraction", "root canal", "rct", "botox", "filler", "brace", "denture", "implant", "whitening",
     "gum disease", "laser", "filling", "retainer", "aligner", "ortho", "veneer", "crown", "cavit", "scaling", "wisdom tooth", "surger",
-    "x-ray", "xray", "periodont"],
+    "x-ray", "xray", "periodont",
+    // Sensitive health care a GP, OB or other human clinic might put before an allowed visit word
+    // ("STD check-up", "pregnancy consultation"). Sexual, reproductive and mental health first.
+    "hiv", "std", "sti", "aids", "pregnan", "prenatal", "antenatal", "postnatal", "pap smear", "ob-gyn", "obgyn", "gyne", "obstet",
+    "ivf", "fertility", "contracept", "family planning", "psych", "mental health", "counsel", "rehab", "onco", "cancer", "chemo",
+    "tumor", "dialysis", "hepatitis", "tuberculosis", "diabet", "ultrasound", "vasectom", "ligation"],
   vet: ["euthan"],
 };
 const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
@@ -156,9 +162,12 @@ const QUALIFIERS = new Set(["dental", "teeth", "tooth", "general", "routine", "r
 
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
-/** Lowercase, accents and width folded (é -> e, full-width letters -> ASCII), invisible format characters dropped. */
+// Blank characters Unicode counts as letters or symbols, not format characters (Hangul fillers, braille blank).
+const BLANK_LETTERS = /[\u115f\u1160\u3164\uffa0\u2800]/gu;
+
+/** Lowercase, accents and width folded (é -> e, full-width letters -> ASCII), invisible characters dropped. */
 function fold(s: string): string {
-  return s.normalize("NFKD").replace(/\p{Cf}/gu, "").replace(/\p{M}/gu, "").toLowerCase();
+  return s.normalize("NFKD").replace(/\p{Cf}/gu, "").replace(BLANK_LETTERS, "").replace(/\p{M}/gu, "").toLowerCase();
 }
 
 /**
@@ -190,7 +199,10 @@ export function isAllowedVisitTerm(term: string): boolean {
 const PLAIN_WORDS = new Set([...ROUTINE_WORDS, ...QUALIFIERS,
   "a", "an", "and", "or", "of", "for", "the", "to", "in", "on", "at", "by", "with", "per", "dr", "dra", "doc", "mr", "ms", "mrs",
   "visit", "visits", "appointment", "appointments", "session", "sessions", "follow", "up", "due", "care", "service", "services",
-  "new", "first", "adult", "adults", "kids", "child", "children", "patient", "patients", "family", "clinic", "test", "tests"]);
+  "new", "first", "adult", "adults", "kids", "child", "children", "patient", "patients", "family", "clinic", "test", "tests",
+  "min", "mins", "minute", "minutes", "hr", "hrs", "hour", "hours", "day", "days", "week", "weeks", "month", "months", "year", "years"]);
+// A name after one of these is a doctor's name, which also blocks patients who share it. It never blocks alone.
+const TITLES = new Set(["dr", "dra", "doc", "doctor"]);
 
 const FORMS: readonly Form[] = ["spaced", "joined", "solid"];
 
@@ -200,12 +212,16 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const START = "(?<![\\p{L}\\p{N}])";
 const END = "(?![\\p{L}\\p{N}])";
 
+/** 4 letters or more: from a word start, so "psych" blocks "psychiatry". Shorter: a whole word or its plural, so "sti" never blocks "still". */
+function wordPattern(t: string): string {
+  return t.replace(/ /g, "").length >= 4 ? START + escapeRe(t) : START + escapeRe(t) + "(?:e?s)?" + END;
+}
+
 /**
  * Patterns a default text must not contain.
- *  - Default stems match from a word start; Filipino roots anywhere in a word.
+ *  - Default stems and clinic words follow `wordPattern`; Filipino roots match anywhere in a word.
  *  - A clinic category matches as a whole phrase, and each of its words of 2 letters or more
- *    ("TB", "HIV", "deep") also blocks alone as a whole word, plurals included, unless it is a plain
- *    word. Whole words, so "STI" never blocks "still".
+ *    ("TB", "HIV", "deep") also blocks alone, unless it is a plain word, a number or a doctor's name.
  *  - With the allowlist on, a category of only routine words blocks nothing and routine words never
  *    block alone. With it off (texts about someone else) they block like any other word.
  */
@@ -217,7 +233,7 @@ function treatmentMatchers(human: boolean, clinicTerms: string[], allowVisitWord
   for (const stem of DEFAULT_SENSITIVE[human ? "human" : "vet"]) {
     for (const mode of FORMS) {
       const t = forMatching(stem, mode);
-      if (t) add(START + escapeRe(t), stem, null);
+      if (t) add(wordPattern(t), stem, null);
     }
   }
   if (human) for (const root of FILIPINO_ROOTS) add(escapeRe(root), root, null);
@@ -228,13 +244,14 @@ function treatmentMatchers(human: boolean, clinicTerms: string[], allowVisitWord
     for (const mode of FORMS) {
       const t = forMatching(term, mode);
       if (!t) continue;
-      add(START + escapeRe(t) + "(?:e?s)?" + END, t, label);
+      add(wordPattern(t), t, label);
       if (mode === "solid") continue;
-      for (const w of wordsOf(t)) {
-        if (w.length < 2) continue;
+      const words = wordsOf(t);
+      words.forEach((w, i) => {
+        if (w.length < 2 || /^\p{N}+$/u.test(w) || TITLES.has(words[i - 1] ?? "")) return;
         const plain = PLAIN_WORDS.has(w) && !(ROUTINE_WORDS.has(w) && !allowVisitWords);
-        if (!plain) add(START + escapeRe(w) + "(?:e?s)?" + END, w, label);
-      }
+        if (!plain) add(wordPattern(w), w, label);
+      });
     }
   }
   return [...out.values()];

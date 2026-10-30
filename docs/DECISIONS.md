@@ -7,7 +7,8 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 | 2026-10-30 | Allowlist scope: "cleaning", "check-up" and "consultation" allowed in default texts for all human clinics (dental, aesthetic, other). English words only; linis and konsulta are not on it. Texts about dependents stay strict until the legal consult | Patrick | Yes |
 | 2026-10-30 | Runs may fix and finish any parked claude/ branch, and merge into main whenever docs/AUTOPILOT.md step 7 allows | Patrick | Yes |
 | 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
-| 2026-10-30 | "Cleaning", "check-up" and "consultation" allowed in default patient texts, including when they are a clinic's own service category names (explicit English allowlist; a generic qualifier like "Dental" is fine, anything more still blocks). Default treatment list unchanged | Patrick | Yes |
+| 2026-10-30 | "Cleaning", "check-up" and "consultation" allowed in default patient texts, including when they are a clinic's own service category names (explicit English allowlist). Default treatment list unchanged | Patrick | Yes |
+| 2026-10-30 | Which qualifiers may sit before an allowed word (dental, teeth, tooth, general, routine, regular, annual) is Claude's reading of Patrick's allowlist decision, not Patrick's own list | Claude | Yes |
 | 2026-10-30 | Compliance pass 1 fixes: single send pipeline (texts cannot skip checks), email mutes, append-only consent ledger, sender-name approval, service text mapped to clinic categories, dental testimonials blocked in schema, wider DTI and claim wording checks | Claude (from compliance-guard) | Yes |
 | 2026-10-30 | Vets may name pet care (vaccine, deworming) in texts; human clinics may not name treatments by default. Overrides compliance-guard's suggestion to block vet terms: pet records are not human health data | Claude | Yes |
 | 2026-10-30 | Working name "Revisit" for the codebase (placeholder); brand name is Patrick's call | Claude | Yes |
@@ -94,3 +95,11 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - R50 (Claude): "about a dependent" is now fail-closed. `prepareSms` requires a subject, and only self, pet and package get the relaxed rules; "other" (another person), a missing value or anything unknown is strict. `checkContent` keeps the allowlist off unless the caller turns it on.
 - R57 (Claude): migration 002 trims existing emails before adding its checks, and adds the consent ledger checks as NOT VALID, because the ledger is append-only and old rows can't be corrected.
 - Known gap, accepted (Claude): a clinic word typed with a plain space inside it ("pre natal" for a "Prenatal" category) is not caught. Hyphens, dots, invisible characters and run-together words are. Catching split words would mean matching every pair of adjacent words, which over-blocks ordinary text.
+
+## 2026-10-30 -- Reviewer round 4 (fail) and compliance pass 4 (pass with risks): fixes
+- R58 (blocker): clinic words of 4 letters or more match from a word start again, so a "Psych" category blocks "psychiatry". Words of 2-3 letters ("TB", "STI") stay whole-word plus plural, so "STI" still never blocks "still". Same rule for the default list.
+- R59, R60: numbers, time units ("30 min", "6-month") and a name after Dr/Dra/Doc never block alone. R62: Hangul fillers and the braille blank are stripped.
+- G14 (Claude, defaults): the allowlist made "STD check-up" pass when the clinic's category was just "Check-up". The default human list now also holds sexual, reproductive and mental health stems and a few other sensitive conditions (hiv, std, pregnan, prenatal, pap smear, ob-gyn, psych, onco, cancer, dialysis and others). Stricter only. To confirm at the pending legal consult.
+- G15 (Claude): "package" subjects are strict; assets carry no owner, so a package may be a child's.
+- DEFERRED to Wiring 2 (G16): the loader should work out the subject from assets.kind of the event's asset, instead of trusting the caller.
+- R61: accepted limit, now pinned by a test (see the earlier note on words split by a plain space).

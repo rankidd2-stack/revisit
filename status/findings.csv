@@ -64,20 +64,30 @@ R42,reviewer,nit,Sync,Sync tie read as healthy when syncHealth was called direct
 R43,reviewer,nit,Privacy,Contact and mute emails were not required to be trimmed like snapshots,fixed
 R44,reviewer,nit,Tests,Constraint tests did not check which constraint refused the row,fixed
 R45,reviewer,nit,Tests,Schema tests loaded only the first migration,fixed
-R46,reviewer,nit,SMS rules,"Allowlist scope beyond dental, and linis, not tracked",open
+R46,reviewer,nit,SMS rules,"Allowlist scope beyond dental, and linis, not tracked",fixed
 G9,compliance-guard,risk,Privacy,"Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period",open
 G10,compliance-guard,risk,Privacy,An opt-out without a number or email snapshot would vanish on erasure,fixed
 G11,compliance-guard,risk,Privacy,"Imports must never write consent rows, or a re-import could undo a stop",open
-G12,compliance-guard,risk,SMS rules,Allowlist covers aesthetic and other clinics; Patrick's reasons were dental,open
+G12,compliance-guard,risk,SMS rules,Allowlist covers aesthetic and other clinics; Patrick's reasons were dental,fixed
 G13,compliance-guard,risk,Privacy,Allowlist applied to texts about dependents without Patrick's decision,fixed
-R47,reviewer,blocker,SMS rules,"Words under 3 letters were dropped from blocked categories, so TB, OB or ED check-up texts reached patients",open
-R48,reviewer,should-fix,SMS rules,Extra category words match as prefixes and over-block (STI blocks still; a doctor's name blocks a patient's first name),open
-R49,reviewer,should-fix,SMS rules,A hyphen inside the sensitive word (pre-natal vs Prenatal) still splits it,open
-R50,reviewer,should-fix,Privacy,Dependent strictness relies on the caller passing subject; default is self,open
-R51,reviewer,should-fix,SMS rules,Multi-word categories without a routine word (HIV test) match only as the exact phrase; existed before the allowlist,open
-R52,reviewer,should-fix,SMS rules,A category starting with punctuation can never match,open
-R53,reviewer,nit,SMS rules,Some invisible Unicode characters are not stripped,open
-R54,reviewer,nit,SMS rules,Word split cuts non-ASCII letters,open
-R55,reviewer,nit,SMS rules,A category made only of routine words joined by and blocks its own natural text,open
-R56,reviewer,nit,SMS rules,"Block message names the matched word, not the clinic category it came from",open
-R57,reviewer,nit,Database,Migration 002 checks fail on an existing database with untrimmed emails; add NOT VALID then validate if one exists,open
+R47,reviewer,blocker,SMS rules,"Words under 3 letters were dropped from blocked categories, so TB, OB or ED check-up texts reached patients",fixed
+R48,reviewer,should-fix,SMS rules,Extra category words match as prefixes and over-block (STI blocks still; a doctor's name blocks a patient's first name),fixed
+R49,reviewer,should-fix,SMS rules,A hyphen inside the sensitive word (pre-natal vs Prenatal) still splits it,fixed
+R50,reviewer,should-fix,Privacy,Dependent strictness relies on the caller passing subject; default is self,fixed
+R51,reviewer,should-fix,SMS rules,Multi-word categories without a routine word (HIV test) match only as the exact phrase; existed before the allowlist,fixed
+R52,reviewer,should-fix,SMS rules,A category starting with punctuation can never match,fixed
+R53,reviewer,nit,SMS rules,Some invisible Unicode characters are not stripped,fixed
+R54,reviewer,nit,SMS rules,Word split cuts non-ASCII letters,fixed
+R55,reviewer,nit,SMS rules,A category made only of routine words joined by and blocks its own natural text,fixed
+R56,reviewer,nit,SMS rules,"Block message names the matched word, not the clinic category it came from",fixed
+R57,reviewer,nit,Database,Migration 002 checks fail on an existing database with untrimmed emails; add NOT VALID then validate if one exists,fixed
+R58,reviewer,blocker,SMS rules,"Whole-word matching let a ""Psych"" or ""Onco"" category miss psychiatry and oncology; 4+ letter words match from a word start again",fixed
+R59,reviewer,should-fix,SMS rules,"Numbers and time units in a category (""30 min"", ""6-month"") blocked ordinary texts",fixed
+R60,reviewer,nit,SMS rules,A doctor's name in a category blocked patients with the same first name,fixed
+R61,reviewer,nit,SMS rules,"A plain space inside a clinic word (""pre natal"") is not caught; accepted limit, pinned by a test",deferred
+R62,reviewer,nit,SMS rules,Blank characters that count as letters (Hangul filler) could hide a word,fixed
+R63,reviewer,nit,Tests,No test that a short category blocks its longer forms,fixed
+G14,compliance-guard,risk,SMS rules,"Sensitive care before an allowed word (""STD check-up"") passed; added sexual, reproductive, mental health and other sensitive stems to the default list",fixed
+G15,compliance-guard,risk,Privacy,A package asset may be a child's; package is now strict,fixed
+G16,compliance-guard,note,Privacy,Subject is supplied by the caller; derive it from assets.kind of the event's asset in the loader (Wiring 2),open
+G17,compliance-guard,note,Decision log,"Qualifier list (dental, teeth, routine...) was credited to Patrick; relabelled as Claude's reading",fixed
