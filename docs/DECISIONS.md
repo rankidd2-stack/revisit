@@ -57,3 +57,14 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Applies to texts about dependents too. The open legal check on dependent texts (DPA s.13) still stands; if counsel says otherwise, dependent texts drop the allowlist.
 - Not covered: "linis" (Filipino for cleaning). It is not on any default list, so it only blocks if a clinic names a category "Linis". The allowlist is English only, as instructed; adding Filipino visit words is a small follow-up if Patrick wants it.
 
+## 2026-10-30 -- Database wiring 1: send-gate inputs from Postgres (Claude)
+- Loaders in src/db/send-context.ts are read-only and clinic-bound; malformed ids are "not found".
+- A mute on the number OR the email stops texts. Mute reasons like deceased and moved are about the person, and a stop click is read as "stop". Cost: someone who stops marketing email also loses SMS reminders. Errs toward fewer texts.
+- Consent: newest row wins, an opt-out wins a tie. Rows left by an erased contact (matched on the same number or email) can only take consent away: opt-outs carry over, opt-ins never do. Sent to compliance-guard for a check of the DPA erasure posture.
+- Last visit for the 7-day marketing rule = any visit by any of the contact's assets (inactive ones too) or any completed appointment, on the Manila calendar. Not for recall: recall uses the last visit per service category.
+- Every logged send counts toward caps and same-day rules, failed ones too (a failed status doesn't prove the text never arrived).
+- A campaign is approved for sending only while live, or once a scheduled one's time has come. Approvals loaded from the database never carry a stale-sync acknowledgement.
+- Clinics whose time zone is not Asia/Manila are refused: the gate's time math is Manila-only. Handled by the Philippines market pack milestone later.
+- Reviewer pass 4 fixes: timestamps read as epoch milliseconds and unreadable ones throw (no NaN can pass a check); migration 002 refuses infinite times, bounds the staleness threshold to 1-72 hours (a clinic can tighten the pause, never switch it off), and fixes the format of consent snapshots; a tie between a good and a failed sync reads as failed.
+- DEFERRED to the send pipeline milestone (Phase 3): lock the contact and re-check caps in the same transaction as the send; a maximum lateness for scheduled campaigns; a stop click also appends a linked opt-out; one combined loader so clinic and contact can't be mixed. Wiring 2 must never write consent rows from an import.
+

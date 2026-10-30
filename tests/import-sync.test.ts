@@ -116,6 +116,7 @@ describe("sync health", () => {
     expect(syncHealth([{ finishedAt: h(5), ok: true }, { finishedAt: h(1), ok: false }], now)).toMatchObject({ reason: "last_run_failed" });
     expect(syncHealth([{ finishedAt: h(5), ok: true }, { finishedAt: h(1), ok: null }], now)).toMatchObject({ reason: "last_run_failed" });
     expect(syncHealth([], now)).toMatchObject({ reason: "never_synced" });
+    expect(syncHealth([{ finishedAt: h(1), ok: true }, { finishedAt: new Date(NaN), ok: true }], now)).toMatchObject({ healthy: false, reason: "clock_skew" });
   });
 });
 

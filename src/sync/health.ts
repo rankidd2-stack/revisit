@@ -13,6 +13,8 @@ export type SyncHealth =
  */
 export function syncHealth(runs: SyncRun[], now: Date, staleAfterHours = 72): SyncHealth {
   const finished = runs.filter((r) => r.finishedAt).sort((a, b) => b.finishedAt!.getTime() - a.finishedAt!.getTime());
+  // An unreadable time can't prove freshness; NaN would slip past every age comparison below.
+  if (finished.some((r) => Number.isNaN(r.finishedAt!.getTime()))) return { healthy: false, reason: "clock_skew", lastOkAt: null };
   const lastOk = finished.find((r) => r.ok === true);
   if (!finished.length || !lastOk) return { healthy: false, reason: "never_synced", lastOkAt: null };
   // A run "finished" in the future means a wrong clock somewhere; don't trust it as fresh.

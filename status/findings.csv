@@ -47,3 +47,14 @@ R25,reviewer,should-fix,Send pipeline,A comma in the mobile field could add a se
 R26,reviewer,should-fix,Privacy,An opt-out could be unlinked from a living contact,fixed
 R27,reviewer,should-fix,Send log,A second send for one campaign could slip in under a new key,fixed
 R28,reviewer,should-fix,Import,Merges lost emails; Excel short dates and times were rejected,fixed
+R29,reviewer,should-fix,Send gate inputs,An infinite or unreadable timestamp made sync health and consent checks pass,fixed
+R30,reviewer,should-fix,Sync,"Clinic staleness threshold had no ceiling, so the sync pause could be switched off",fixed
+R31,reviewer,should-fix,Send gate inputs,Visit and timestamp text followed the session date style; a non-ISO style broke the 7-day rule,fixed
+R32,reviewer,should-fix,Privacy,"Consent snapshots had no format check, so an erased contact's opt-out could stop matching",fixed
+R33,reviewer,should-fix,Decision log,Loader design choices were not logged,fixed
+R34,reviewer,nit,Sync,A failed and a good sync run at the same moment could read as healthy,fixed
+R35,reviewer,nit,Send pipeline,A scheduled campaign stays approved long after its time if the scheduler was down,deferred
+R36,reviewer,nit,Send pipeline,Caps and same-day rules are not enforced under concurrent senders; lock the contact and re-check at send time,deferred
+R37,reviewer,nit,Privacy,A stop that only writes a mute does not follow the person to a new number; also append a linked opt-out,deferred
+R38,reviewer,nit,Send gate inputs,"Loader results don't carry their clinic id, so a caller could mix clinics",deferred
+R39,reviewer,nit,Tests,Database wiring tests share one changing database and depend on order,deferred

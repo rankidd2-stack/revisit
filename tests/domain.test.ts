@@ -231,6 +231,10 @@ describe("contact state", () => {
   it("testimonial consent never counts as service or marketing consent", () => {
     expect(latestConsent([rec("testimonial", true, "2026-01-01T00:00:00Z")])).toEqual({});
   });
+  it("an unreadable consent time or a non-ISO visit date throws instead of passing a check", () => {
+    expect(() => latestConsent([rec("marketing", false, "not a date")])).toThrow();
+    expect(() => latestVisit(["28/10/2026"], [])).toThrow(/YYYY-MM-DD/);
+  });
   it("latest visit takes recorded visits and completed appointments on the Manila calendar", () => {
     expect(latestVisit([], [])).toBeNull();
     expect(latestVisit([null], [null])).toBeNull();

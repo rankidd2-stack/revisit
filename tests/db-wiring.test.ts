@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
+import { asDate } from "../src/db/client.js";
 import { loadCampaignApproval, loadClinicContext, loadContact, loadRecallRuleApproval } from "../src/db/send-context.js";
 import { prepareSms } from "../src/send/pipeline.js";
 
@@ -18,7 +19,7 @@ const recallTemplate = "Hi {first_name}, {pet_name} is due for a visit.";
 let clinicA: string, clinicB: string, ana: string, bantay: string, rule: string;
 
 beforeAll(async () => {
-  await db.exec(readFileSync(new URL("../db/migrations/001_init.sql", import.meta.url), "utf8"));
+  for (const m of ["001_init.sql", "002_gate_inputs.sql"]) await db.exec(readFileSync(new URL(`../db/migrations/${m}`, import.meta.url), "utf8"));
   clinicA = await id(`insert into clinics (name, vertical, sender_name, sender_name_status, reply_phone, marketing_cap_per_30d, sync_stale_after_hours)
                       values ('Paw Care', 'vet', 'PAWCARE', 'approved', '0917 555 0000', 3, 24) returning id`);
   clinicB = await id(`insert into clinics (name, vertical, sender_name, sender_name_status) values ('Smile', 'dental', 'SMILE', 'pending') returning id`);
@@ -80,6 +81,16 @@ describe("loading a clinic", () => {
     expect(after.policy.syncHealthy).toBe(false);
   });
 
+  it("a run that finished in the future, or a tie with a failed run, never reads as healthy", async () => {
+    const skew = await id(`insert into clinics (name, vertical) values ('Skew', 'vet') returning id`);
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true)`, [skew, hoursAgo(-2)]);
+    expect((await clinicCtx(skew)).sync).toMatchObject({ healthy: false, reason: "clock_skew" });
+    const tie = await id(`insert into clinics (name, vertical) values ('Tie', 'vet') returning id`);
+    // Inserted ok-first and failed-first, so row order can't decide it.
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true), ($1, 'csv', $2, false), ($1, 'csv', $2, true)`, [tie, hoursAgo(1)]);
+    expect((await clinicCtx(tie)).sync).toMatchObject({ healthy: false, reason: "last_run_failed" });
+  });
+
   it("one clinic's sync runs never count for another", async () => {
     expect((await clinicCtx(clinicB)).sync).toMatchObject({ healthy: false, reason: "never_synced" });
   });
@@ -124,14 +135,53 @@ describe("loading a contact", () => {
     const mobile = "639170000003";
     const old = await id(`insert into contacts (clinic_id, full_name, mobile, email) values ($1, 'Eli', $2, 'eli@example.com') returning id`, [clinicA, mobile]);
     await db.query(`insert into consent_events (clinic_id, contact_id, mobile_snapshot, email_snapshot, purpose, granted, channel, text_version, captured_by)
-                    values ($1, $2, $3, 'Eli@Example.com', 'marketing', true, 'qr', 'v1', 'patient'),
-                           ($1, $2, $3, 'Eli@Example.com', 'service', false, 'staff', 'v1', 'staff:1')`, [clinicA, old, mobile]);
+                    values ($1, $2, $3, 'eli@example.com', 'marketing', true, 'qr', 'v1', 'patient'),
+                           ($1, $2, $3, 'eli@example.com', 'service', false, 'staff', 'v1', 'staff:1')`, [clinicA, old, mobile]);
     await db.query(`delete from contacts where id = $1`, [old]);
     const again = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Eli', $2) returning id`, [clinicA, mobile]);
     expect((await contactOf(clinicA, again)).contact.consent).toEqual({ service: false });
-    // Matched on email too, whatever its case in the snapshot.
+    // Matched on email too.
     const byEmail = await id(`insert into contacts (clinic_id, full_name, email) values ($1, 'Eli', 'eli@example.com') returning id`, [clinicA]);
     expect((await contactOf(clinicA, byEmail)).contact).toMatchObject({ consent: { service: false }, hasMobile: false, mobile: null });
+  });
+
+  it("an orphaned opt-out beats a linked opt-in recorded at the same moment", async () => {
+    const t = "2026-09-01T00:00:00Z";
+    const gil = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Gil', '639170000005') returning id`, [clinicA]);
+    await db.query(`insert into consent_events (clinic_id, contact_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by, recorded_at)
+                    values ($1, null, '639170000005', 'marketing', false, 'stop_link', 'v1', 'patient', $3),
+                           ($1, $2, '639170000005', 'marketing', true, 'qr', 'v1', 'patient', $3)`, [clinicA, gil, t]);
+    expect((await contactOf(clinicA, gil)).contact.consent).toEqual({ marketing: false });
+  });
+
+  it("a completed appointment late in the UTC day lands on the next Manila date", async () => {
+    const hana = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Hana', '639170000006') returning id`, [clinicA]);
+    const self = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'self', 'Self') returning id`, [clinicA, hana]);
+    const svc = await id(`select id from service_categories where clinic_id = $1 and name = 'Deworming'`, [clinicA]);
+    await db.query(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at, status) values ($1, $2, $3, '2026-10-29T16:30:00Z', 'completed')`, [clinicA, self, svc]);
+    expect((await contactOf(clinicA, hana)).contact.lastVisitOn).toBe("2026-10-30");
+  });
+
+  it("dates and times read the same whatever the session's date style", async () => {
+    await db.exec(`set datestyle = 'SQL, DMY'`);
+    try {
+      expect((await contactOf(clinicA, ana)).contact.lastVisitOn).toBe("2026-10-25");
+      // 2026-10-30 00:00Z would read as "30/10/2026" in this style; an ambiguous day (06/10) would be misread as text.
+      expect((await clinicCtx(clinicA)).sync).toEqual({ healthy: true, lastOkAt: new Date(hoursAgo(2)) });
+      const [v] = (await db.query<{ last: string }>(`select max(visited_on)::text as last from visits where clinic_id = $1`, [clinicA])).rows;
+      expect(v!.last).not.toMatch(/^\d{4}-/);   // proves the setting took effect
+    } finally {
+      await db.exec(`set datestyle = 'ISO, MDY'`);
+    }
+  });
+
+  it("another contact's sends are never counted", async () => {
+    const ivy = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Ivy', '639170000007') returning id`, [clinicA]);
+    const joy = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Joy', '639170000008') returning id`, [clinicA]);
+    await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, sent_at) values ($1, $2, 'reminder:appt9:24h', 'reminder', 'sms', 'a', $3)`, [clinicA, ivy, hoursAgo(1)]);
+    const r = await contactOf(clinicA, joy);
+    expect(r.contact.pastSends).toEqual([]);
+    expect(r.sentEventKeys.size).toBe(0);
   });
 
   it("failed sends still count toward caps, and every logged key blocks a resend", async () => {
@@ -165,6 +215,8 @@ describe("loading approvals", () => {
     const live = await campaign("live");
     expect(await loadCampaignApproval(db, clinicA, live, now)).toEqual({ type: "campaign", campaignId: live, approvedBy: "admin", template: "We now open on Saturdays." });
     expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: hoursAgo(1) }), now)).toMatchObject({ type: "campaign" });
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: now.toISOString() }), now)).toMatchObject({ type: "campaign" });
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: new Date(now.getTime() + 1000).toISOString() }), now)).toBeNull();
     expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: hoursAgo(-24) }), now)).toBeNull();
     expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled"), now)).toBeNull();
     for (const status of ["draft", "pending_approval", "paused", "ended"]) {
@@ -229,9 +281,43 @@ describe("database rows drive the send pipeline", () => {
     expect(r).toMatchObject({ ok: false, reason: "recent_visit" });
   });
 
+  it("a contact the clinic marked deceased gets nothing", async () => {
+    const kim = await id(`insert into contacts (clinic_id, full_name, mobile, status) values ($1, 'Kim', '639170000010', 'deceased') returning id`, [clinicA]);
+    const pet = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', 'Brownie') returning id`, [clinicA, kim]);
+    expect(await prepare(kim, { ...recallEvent(), assetId: pet }, await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "inactive_status" });
+  });
+
   it("a stop-link mute in the database stops the next text", async () => {
     await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'mobile', '639171234567', 'stop_link')`, [clinicA]);
     const next = { ...recallEvent(), stepOffsetDays: 14 };
     expect(await prepare(ana, next, await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "muted" });
+  });
+
+  it("a failed sync in the database pauses automated sends", async () => {
+    const lee = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Lee', '639170000011') returning id`, [clinicA]);
+    const pet = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', 'Choco') returning id`, [clinicA, lee]);
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok, error_code) values ($1, 'google_sheet', $2, false, 'sheet_unreachable')`, [clinicA, hoursAgo(1)]);
+    expect(await prepare(lee, { ...recallEvent(), assetId: pet }, await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "sync_stale" });
+  });
+});
+
+describe("gate inputs must be real values (reviewer pass 4)", () => {
+  it("timestamps from any driver are read, and unreadable ones throw instead of passing a check", () => {
+    expect(asDate("2026-10-30 10:00:00.123456+08").toISOString()).toBe("2026-10-30T02:00:00.123Z");
+    expect(asDate(new Date(0)).getTime()).toBe(0);
+    for (const bad of ["infinity", "-infinity", "garbage", Infinity, -Infinity]) expect(() => asDate(bad)).toThrow(/Unreadable/);
+  });
+
+  it("the database refuses infinite times, an unbounded staleness pause and odd snapshot formats", async () => {
+    const r = (sql: string, params: unknown[] = []) => expect(db.query(sql, params)).rejects.toThrow();
+    await r(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', 'infinity', true)`, [clinicA]);
+    await r(`insert into consent_events (clinic_id, purpose, granted, channel, text_version, captured_by, recorded_at) values ($1, 'marketing', true, 'qr', 'v1', 'patient', '-infinity')`, [clinicA]);
+    await r(`insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, sent_at) values ($1, $2, 'reminder:x:24h', 'reminder', 'sms', 'a', 'infinity')`, [clinicA, ana]);
+    await r(`insert into campaigns (clinic_id, name, body, announcement_type, scheduled_for) values ($1, 'N', 'B', 'clinic_news', 'infinity')`, [clinicA]);
+    await r(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at) select $1, $2, id, 'infinity' from service_categories where clinic_id = $1 limit 1`, [clinicA, bantay]);
+    for (const h of [0, 73, 100000]) await r(`update clinics set sync_stale_after_hours = $2 where id = $1`, [clinicA, h]);
+    await r(`insert into consent_events (clinic_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, '09171234567', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r(`insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, 'Eli@Example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r(`insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, ' eli@example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
   });
 });

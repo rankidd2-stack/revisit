@@ -33,8 +33,13 @@ interface ClinicRow {
   sync_stale_after_hours: number;
 }
 
+/** Timestamps are read as epoch milliseconds, so their format never depends on the session's DateStyle. */
+const ms = (col: string, as: string) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
+
 /** The send gate does its time math in Asia/Manila only. */
 const SUPPORTED_TIMEZONE = "Asia/Manila";
+/** A clinic may tighten the staleness pause, never switch it off (locked decision 10). */
+const MAX_STALE_HOURS = 72;
 
 export async function loadClinicContext(db: Db, clinicId: string, now: Date): Promise<ClinicContextResult> {
   if (!isUuid(clinicId)) return { ok: false, reason: "clinic_not_found" };
@@ -48,13 +53,15 @@ export async function loadClinicContext(db: Db, clinicId: string, now: Date): Pr
 
   const categories = (await db.query<{ name: string }>(
     `select name from service_categories where clinic_id = $1 order by name`, [clinicId])).rows;
-  // syncHealth only needs the latest finished run and the latest good one.
-  const runs = (await db.query<{ finished_at: Date | string; ok: boolean | null }>(
-    `(select finished_at, ok from sync_runs where clinic_id = $1 and finished_at is not null order by finished_at desc limit 1)
+  // syncHealth only needs the latest finished run and the latest good one. On a tie the failed run
+  // counts as the latest, so a tie never reads as healthy.
+  const runs = (await db.query<{ finished_at: number; ok: boolean | null }>(
+    `(select ${ms("finished_at", "finished_at")}, ok from sync_runs where clinic_id = $1 and finished_at is not null order by finished_at desc, ok asc nulls first limit 1)
      union all
-     (select finished_at, ok from sync_runs where clinic_id = $1 and finished_at is not null and ok order by finished_at desc limit 1)`,
+     (select ${ms("finished_at", "finished_at")}, ok from sync_runs where clinic_id = $1 and finished_at is not null and ok order by finished_at desc limit 1)`,
     [clinicId])).rows;
-  const sync = syncHealth(runs.map((r) => ({ finishedAt: asDate(r.finished_at), ok: r.ok })), now, c.sync_stale_after_hours);
+  const sync = syncHealth(runs.map((r) => ({ finishedAt: asDate(r.finished_at), ok: r.ok })), now,
+    Math.min(Math.max(c.sync_stale_after_hours, 1), MAX_STALE_HOURS));
 
   return {
     ok: true,
@@ -97,8 +104,8 @@ export async function loadContact(db: Db, clinicId: string, contactId: string): 
     [clinicId, c.mobile, c.email])).rows.length > 0;
 
   // Opt-outs left behind by an erased contact with the same number or email still count.
-  const consentRows = (await db.query<{ purpose: "service" | "marketing"; granted: boolean; recorded_at: Date | string; linked: boolean }>(
-    `select purpose, granted, recorded_at, contact_id is not null as linked
+  const consentRows = (await db.query<{ purpose: "service" | "marketing"; granted: boolean; recorded_at: number; linked: boolean }>(
+    `select purpose, granted, ${ms("recorded_at", "recorded_at")}, contact_id is not null as linked
        from consent_events
       where clinic_id = $1 and purpose in ('service', 'marketing')
         and (contact_id = $2
@@ -106,17 +113,18 @@ export async function loadContact(db: Db, clinicId: string, contactId: string): 
     [clinicId, contactId, c.mobile, c.email])).rows;
 
   // Visits by any of the contact's assets (self, pets, dependents) count, including inactive ones.
-  const [v] = (await db.query<{ last_visit: string | null; last_completed: Date | string | null }>(
-    `select (select max(v.visited_on)::text from visits v join assets a on a.clinic_id = v.clinic_id and a.id = v.asset_id
+  // to_char, not ::text, so the date format never depends on the session's DateStyle.
+  const [v] = (await db.query<{ last_visit: string | null; last_completed: number | null }>(
+    `select (select to_char(max(v.visited_on), 'YYYY-MM-DD') from visits v join assets a on a.clinic_id = v.clinic_id and a.id = v.asset_id
               where v.clinic_id = $1 and a.contact_id = $2) as last_visit,
-            (select max(ap.starts_at) from appointments ap join assets a on a.clinic_id = ap.clinic_id and a.id = ap.asset_id
+            (select ${ms("max(ap.starts_at)", "m")} from appointments ap join assets a on a.clinic_id = ap.clinic_id and a.id = ap.asset_id
               where ap.clinic_id = $1 and a.contact_id = $2 and ap.status = 'completed') as last_completed`,
     [clinicId, contactId])).rows;
 
   // Every logged send counts toward caps and same-day rules, failed ones too: a failed status
   // doesn't prove the text never arrived, so we err toward fewer texts.
-  const sends = (await db.query<{ kind: SendKind; campaign_id: string | null; sent_at: Date | string; event_key: string }>(
-    `select kind, campaign_id, sent_at, event_key from sends where clinic_id = $1 and contact_id = $2`,
+  const sends = (await db.query<{ kind: SendKind; campaign_id: string | null; sent_at: number; event_key: string }>(
+    `select kind, campaign_id, ${ms("sent_at", "sent_at")}, event_key from sends where clinic_id = $1 and contact_id = $2`,
     [clinicId, contactId])).rows;
 
   return {
@@ -128,7 +136,7 @@ export async function loadContact(db: Db, clinicId: string, contactId: string): 
       mobile: c.mobile,
       email: c.email,
       consent: latestConsent(consentRows.map((r) => ({ purpose: r.purpose, granted: r.granted, recordedAt: asDate(r.recorded_at), linked: r.linked }))),
-      lastVisitOn: latestVisit([v?.last_visit ?? null], [v?.last_completed ? asDate(v.last_completed) : null]),
+      lastVisitOn: latestVisit([v?.last_visit ?? null], [v?.last_completed == null ? null : asDate(v.last_completed)]),
       pastSends: sends.map((s) => ({ kind: s.kind, campaignId: s.campaign_id, sentAt: asDate(s.sent_at) })),
     },
     sentEventKeys: new Set(sends.map((s) => s.event_key)),
@@ -142,8 +150,8 @@ export async function loadContact(db: Db, clinicId: string, contactId: string): 
  */
 export async function loadCampaignApproval(db: Db, clinicId: string, campaignId: string, now: Date): Promise<Approval | null> {
   if (!isUuid(clinicId) || !isUuid(campaignId)) return null;
-  const [c] = (await db.query<{ body: string; approved_by: string | null; status: string; scheduled_for: Date | string | null }>(
-    `select body, approved_by, status, scheduled_for from campaigns where clinic_id = $1 and id = $2`,
+  const [c] = (await db.query<{ body: string; approved_by: string | null; status: string; scheduled_for: number | null }>(
+    `select body, approved_by, status, ${ms("scheduled_for", "scheduled_for")} from campaigns where clinic_id = $1 and id = $2`,
     [clinicId, campaignId])).rows;
   if (!c || !c.approved_by?.trim()) return null;
   const due = c.status === "live" || (c.status === "scheduled" && c.scheduled_for !== null && asDate(c.scheduled_for) <= now);
