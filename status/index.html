@@ -1,0 +1,184 @@
+<meta name="dash-one-writer">
+<style>
+  .bk { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); }
+  .bk-head h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0 0 var(--cds-gap-xs); }
+  .bk-head p { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); }
+  .bk-tiles { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); }
+  .bk-tile, .bk-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); }
+  .bk-tile .lbl { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .bk-tile .val { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; margin-top: var(--cds-gap-xs); }
+  .bk-tile .sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-xs); }
+  .bk h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0 0 var(--cds-gap-xs); }
+  .bk-note { margin: 0 0 var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .bk-grid { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); }
+  .bk-phases { min-height: 15rem; }
+  .bk-phase { display: grid; grid-template-columns: minmax(7rem, 14rem) 1fr 3.5rem; gap: var(--cds-gap-sm); align-items: center; margin-bottom: var(--cds-gap-sm); font-size: var(--cds-font-size-caption); }
+  .bk-bar { display: flex; height: 0.875rem; border-radius: var(--cds-radius); overflow: hidden; background: var(--cds-chart-grid); }
+  .bk-bar span { display: block; height: 100%; }
+  .bk-pct { text-align: right; font-variant-numeric: tabular-nums; }
+  .bk-legend { display: flex; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-sm); flex-wrap: wrap; }
+  .bk-legend i { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 2px; margin-right: 0.3rem; vertical-align: -1px; }
+  .bk-scroll { max-height: 26rem; overflow: auto; }
+  .bk table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); }
+  .bk th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); position: sticky; top: 0; background: var(--color-panel); padding: var(--cds-pad-xs) var(--cds-pad-sm) var(--cds-pad-xs) 0; border-bottom: 1px solid var(--color-border-line); }
+  .bk td { padding: var(--cds-pad-xs) var(--cds-pad-sm) var(--cds-pad-xs) 0; border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+  .bk-pill { display: inline-block; padding: 0 var(--cds-pad-xs); border-radius: var(--cds-radius); border: 1px solid var(--color-border-line); white-space: nowrap; }
+  .bk-pill.done, .bk-pill.fixed, .bk-pill.pass { color: var(--color-ok); }
+  .bk-pill.in_review, .bk-pill.should-fix, .bk-pill.risk, .bk-pill.open { color: var(--color-warn); }
+  .bk-pill.blocker, .bk-pill.fail { color: var(--color-bad); }
+  [data-dash-source-state=empty] { color: transparent; }
+  [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+</style>
+
+<div class="bk">
+  <header class="bk-head" id="top">
+    <h1>Revisit project status</h1>
+    <p>Currently in <b data-draw="cur-phase" data-source="phase_progress">—</b>, with <b data-draw="done-count" data-source="phase_progress">—</b> of <b data-draw="total-count" data-source="phase_progress">—</b> milestones done across all phases.</p>
+  </header>
+
+  <section class="bk-tiles" aria-label="Headline figures">
+    <div class="bk-tile"><div class="lbl">Milestones done</div><div class="val" data-draw="t-done" data-source="phase_progress">—</div><div class="sub">all phases</div></div>
+    <div class="bk-tile"><div class="lbl">In review</div><div class="val" data-draw="t-review" data-source="phase_progress">—</div><div class="sub">waiting on reviewer and compliance sign-off</div></div>
+    <div class="bk-tile"><div class="lbl">Tests passing</div><div class="val" data-draw="t-tests" data-source="tests" data-field="passing" data-row="0">—</div><div class="sub">latest run</div></div>
+    <div class="bk-tile"><div class="lbl">Open review issues</div><div class="val" data-draw="t-issues" data-source="open_issues">—</div><div class="sub">blockers and should-fix, not yet fixed</div></div>
+    <div class="bk-tile"><div class="lbl">Waiting on Patrick</div><div class="val" data-draw="t-patrick" data-source="needs_patrick">—</div><div class="sub">decisions only you can make</div></div>
+  </section>
+
+  <section class="bk-card" id="phases">
+    <h2>Progressive phases</h2>
+    <p class="bk-note">Each bar is one phase; its share of milestones done, in review and still to do.</p>
+    <div class="bk-phases" data-draw="phases" data-source="phase_progress">—</div>
+    <div class="bk-legend"><span><i style="background: var(--color-ok)"></i>Done</span><span><i style="background: var(--color-warn)"></i>In review</span><span><i style="background: var(--cds-chart-grid)"></i>To do</span></div>
+  </section>
+
+  <div class="bk-grid">
+    <section class="bk-card" id="milestones">
+      <h2>Milestones</h2>
+      <p class="bk-note">A milestone closes only after the reviewer and compliance agents sign off.</p>
+      <div class="bk-scroll">
+        <table data-source="milestones" data-row-key="milestone">
+          <thead><tr><th data-field="phase">Phase</th><th data-field="milestone">Milestone</th><th data-field="state">State</th></tr></thead>
+          <tbody data-draw="milestones-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bk-card" id="needs-patrick">
+      <h2>Needs Patrick</h2>
+      <p class="bk-note">Only money, legal, real sends, deleting data or reversing a locked decision. Each has a recommended answer.</p>
+      <div class="bk-scroll">
+        <table data-source="needs_patrick" data-row-key="priority">
+          <thead><tr><th data-field="priority">#</th><th data-field="item">Decision</th><th data-field="recommendation">Recommended</th></tr></thead>
+          <tbody data-draw="patrick-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="bk-card" id="reviews">
+    <h2>Review findings</h2>
+    <p class="bk-note">From the independent reviewer and compliance agents on the foundation code.</p>
+    <div class="bk-scroll">
+      <table data-source="findings" data-row-key="id">
+        <thead><tr><th data-field="id">#</th><th data-field="agent">Agent</th><th data-field="severity">Severity</th><th data-field="area">Area</th><th data-field="finding">Finding</th><th data-field="status">Status</th></tr></thead>
+        <tbody data-draw="findings-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="bk-card" id="agents">
+    <h2>Agent roster</h2>
+    <p class="bk-note">Three checkers keep the builder honest; the builder decides only what is reversible.</p>
+    <table data-source="agents" data-row-key="agent">
+      <thead><tr><th data-field="agent">Agent</th><th data-field="role">Role</th><th data-field="runs_when">Runs</th></tr></thead>
+      <tbody data-draw="agents-body"></tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+  dash.calc('phase_progress', {
+    inputs: ['milestones'],
+    title: 'Progress per phase',
+    description: 'Counts milestones by state for each phase; percent done is done over total.',
+    fn: (milestones) => {
+      const byPhase = new Map();
+      for (const m of milestones) {
+        const k = m.phase;
+        if (!byPhase.has(k)) byPhase.set(k, { phase_id: Number(m.phase_id), phase: k, done: 0, in_review: 0, todo: 0, in_progress: 0, total: 0 });
+        const p = byPhase.get(k);
+        p.total += 1;
+        if (m.state === 'done') p.done += 1;
+        else if (m.state === 'in_review') p.in_review += 1;
+        else p.todo += 1;
+      }
+      return [...byPhase.values()].sort((a, b) => a.phase_id - b.phase_id).map((p) => ({ ...p, pct: p.total ? p.done / p.total : 0 }));
+    },
+  });
+
+  dash.calc('open_issues', {
+    inputs: ['findings'],
+    title: 'Open review issues',
+    description: 'Findings rated blocker, should-fix, risk or fail that are not yet fixed.',
+    fn: (findings) => [{ open: findings.filter((f) => f.status !== 'fixed' && ['blocker', 'should-fix', 'risk', 'fail'].includes(f.severity)).length }],
+  });
+
+  const pct = d3.format('.0%');
+  const okRows = (id) => { const d = dash.data(id); return d.status === 'ok' ? d.data : null; };
+  const setText = (el, v) => { el.textContent = v == null ? '—' : String(v); };
+
+  const current = () => {
+    const rows = okRows('phase_progress');
+    if (!rows) return null;
+    return rows.find((p) => p.done < p.total) ?? rows[rows.length - 1];
+  };
+
+  dash.draw('cur-phase', (el) => { const c = current(); setText(el, c ? c.phase.replace(/^\d+\.\s*/, `phase ${c.phase_id}, `) : null); });
+  dash.draw('done-count', (el) => { const r = okRows('phase_progress'); setText(el, r ? d3.sum(r, (p) => p.done) : null); });
+  dash.draw('total-count', (el) => { const r = okRows('phase_progress'); setText(el, r ? d3.sum(r, (p) => p.total) : null); });
+  dash.draw('t-done', (el) => { const r = okRows('phase_progress'); setText(el, r ? `${d3.sum(r, (p) => p.done)} / ${d3.sum(r, (p) => p.total)}` : null); });
+  dash.draw('t-review', (el) => { const r = okRows('phase_progress'); setText(el, r ? d3.sum(r, (p) => p.in_review) : null); });
+  dash.draw('t-tests', (el) => { const r = okRows('tests'); setText(el, r && r[0] ? Number(r[0].passing) : null); });
+  dash.draw('t-issues', (el) => { const r = okRows('open_issues'); setText(el, r && r[0] ? r[0].open : null); });
+  dash.draw('t-patrick', (el) => { const r = okRows('needs_patrick'); setText(el, r ? r.length : null); });
+
+  dash.draw('phases', (el) => {
+    const rows = okRows('phase_progress');
+    el.replaceChildren();
+    if (!rows) { el.textContent = '—'; return; }
+    for (const p of rows) {
+      const row = document.createElement('div'); row.className = 'bk-phase';
+      const name = document.createElement('div'); name.textContent = p.phase;
+      const bar = document.createElement('div'); bar.className = 'bk-bar';
+      bar.setAttribute('role', 'img'); bar.setAttribute('aria-label', `${p.phase}: ${p.done} done, ${p.in_review} in review, ${p.todo} to do`);
+      [['done', 'var(--color-ok)'], ['in_review', 'var(--color-warn)']].forEach(([k, c]) => {
+        const s = document.createElement('span'); s.style.width = `${(p[k] / p.total) * 100}%`; s.style.background = c; bar.appendChild(s);
+      });
+      const v = document.createElement('div'); v.className = 'bk-pct'; v.textContent = pct(p.pct);
+      row.append(name, bar, v); el.appendChild(row);
+    }
+  });
+
+  const label = { done: 'Done', in_review: 'In review', in_progress: 'In progress', todo: 'To do', blocker: 'Blocker', 'should-fix': 'Should fix', nit: 'Nit', risk: 'Risk', fail: 'Fail', pass: 'Pass', open: 'Open', fixed: 'Fixed', 'not built yet': 'Not built yet' };
+  const pill = (v) => { const s = document.createElement('span'); s.className = `bk-pill ${String(v).replace(/\s+/g, '_')}`; s.textContent = label[v] ?? v; return s; };
+
+  const table = (name, id, cols, pills) => dash.draw(name, (tb) => {
+    const rows = okRows(id);
+    tb.replaceChildren();
+    if (!rows) return;
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      for (const c of cols) {
+        const td = document.createElement('td');
+        if (pills.includes(c)) td.appendChild(pill(r[c])); else td.textContent = r[c] ?? '';
+        tr.appendChild(td);
+      }
+      tb.appendChild(tr);
+    }
+  });
+
+  table('milestones-body', 'milestones', ['phase', 'milestone', 'state'], ['state']);
+  table('patrick-body', 'needs_patrick', ['priority', 'item', 'recommendation'], []);
+  table('findings-body', 'findings', ['id', 'agent', 'severity', 'area', 'finding', 'status'], ['severity', 'status']);
+  table('agents-body', 'agents', ['agent', 'role', 'runs_when'], []);
+</script>

@@ -1,0 +1,134 @@
+import { describe, expect, it } from "vitest";
+import { nextRecallStep, type RecallRule } from "../src/domain/recall.js";
+import { checkEligibility, DEFAULT_POLICY, type ContactState } from "../src/domain/eligibility.js";
+import { buildFooter, checkContent, measureSms, smsCostCentavos } from "../src/domain/sms.js";
+import { manilaDate, manilaHour, manilaInstant } from "../src/domain/time.js";
+
+const cleaning: RecallRule = { serviceCategory: "Dental check-up", intervalDays: 180, stepOffsetsDays: [-7, 0, 14, 60] };
+const base = { rule: cleaning, lastVisitOn: "2026-01-01", hasUpcomingAppointment: false, stepsAlreadySent: [] as number[] };
+
+describe("time (Asia/Manila)", () => {
+  it("maps UTC instants to Manila date and hour", () => {
+    const t = new Date("2026-10-30T17:30:00Z"); // 01:30 next day in Manila
+    expect(manilaDate(t)).toBe("2026-10-31");
+    expect(manilaHour(t)).toBe(1);
+    expect(manilaInstant("2026-10-31", 8).toISOString()).toBe("2026-10-31T00:00:00.000Z");
+  });
+});
+
+describe("recall", () => {
+  it("is due 180 days after the visit, heads-up 7 days before", () => {
+    expect(nextRecallStep(base, "2026-06-22")).toEqual({ action: "none", reason: "not_yet" });
+    expect(nextRecallStep(base, "2026-06-23")).toMatchObject({ action: "send", dueOn: "2026-06-30", stepOffsetDays: -7 });
+  });
+  it("does not resend a step already sent", () => {
+    expect(nextRecallStep({ ...base, stepsAlreadySent: [-7] }, "2026-06-25").action).toBe("none");
+    expect(nextRecallStep({ ...base, stepsAlreadySent: [-7] }, "2026-06-30")).toMatchObject({ action: "send", stepOffsetDays: 0 });
+  });
+  it("stops when the patient has booked", () => {
+    expect(nextRecallStep({ ...base, hasUpcomingAppointment: true }, "2026-07-01")).toEqual({ action: "none", reason: "booked" });
+  });
+  it("a late import fires only the latest due step, not a burst", () => {
+    expect(nextRecallStep(base, "2026-09-30")).toMatchObject({ action: "send", stepOffsetDays: 60 });
+  });
+  it("ends after the last step", () => {
+    expect(nextRecallStep({ ...base, stepsAlreadySent: [60] }, "2026-12-01")).toEqual({ action: "none", reason: "sequence_done" });
+  });
+  it("needs a visit to start", () => {
+    expect(nextRecallStep({ ...base, lastVisitOn: null }, "2026-06-30")).toEqual({ action: "none", reason: "no_visit" });
+  });
+});
+
+const tenAm = new Date("2026-10-30T02:00:00Z"); // 10:00 Manila
+const contact: ContactState = {
+  status: "active", muted: false, hasMobile: true,
+  consent: { service: true, marketing: true }, lastVisitOn: "2026-09-01", pastSends: [],
+};
+const policy = { ...DEFAULT_POLICY, syncHealthy: true };
+const mkt = { kind: "marketing" as const, campaignId: "c1", automated: true, now: tenAm };
+
+describe("eligibility", () => {
+  it("allows a consented marketing text in daytime", () => {
+    expect(checkEligibility(contact, policy, mkt)).toEqual({ ok: true });
+  });
+  it("blocks muted, inactive and no-mobile contacts for every kind", () => {
+    expect(checkEligibility({ ...contact, muted: true }, policy, { ...mkt, kind: "reminder" })).toMatchObject({ reason: "muted" });
+    expect(checkEligibility({ ...contact, status: "deceased" }, policy, { ...mkt, kind: "recall" })).toMatchObject({ reason: "inactive_status" });
+    expect(checkEligibility({ ...contact, hasMobile: false }, policy, mkt)).toMatchObject({ reason: "no_mobile" });
+  });
+  it("marketing needs explicit opt-in; reminders do not", () => {
+    const noMkt = { ...contact, consent: { service: true } };
+    expect(checkEligibility(noMkt, policy, mkt)).toMatchObject({ reason: "no_marketing_consent" });
+    expect(checkEligibility(noMkt, policy, { ...mkt, kind: "reminder", campaignId: null })).toEqual({ ok: true });
+  });
+  it("honors a service opt-out", () => {
+    expect(checkEligibility({ ...contact, consent: { service: false } }, policy, { ...mkt, kind: "recall" })).toMatchObject({ reason: "service_opted_out" });
+  });
+  it("never sends the same campaign twice", () => {
+    const sent = { ...contact, pastSends: [{ kind: "marketing" as const, campaignId: "c1", sentAt: new Date("2026-09-20T02:00:00Z") }] };
+    expect(checkEligibility(sent, policy, mkt)).toMatchObject({ reason: "duplicate_campaign" });
+  });
+  it("caps marketing at 2 per 30 days", () => {
+    const two = { ...contact, pastSends: [
+      { kind: "marketing" as const, campaignId: "a", sentAt: new Date("2026-10-05T02:00:00Z") },
+      { kind: "marketing" as const, campaignId: "b", sentAt: new Date("2026-10-20T02:00:00Z") },
+    ] };
+    expect(checkEligibility(two, policy, mkt)).toMatchObject({ reason: "marketing_cap" });
+  });
+  it("no marketing within 7 days after a visit", () => {
+    expect(checkEligibility({ ...contact, lastVisitOn: "2026-10-26" }, policy, mkt)).toMatchObject({ reason: "recent_visit" });
+  });
+  it("recall and marketing never land on the same Manila day", () => {
+    const recalledToday = { ...contact, pastSends: [{ kind: "recall" as const, campaignId: null, sentAt: new Date("2026-10-30T00:30:00Z") }] };
+    expect(checkEligibility(recalledToday, policy, mkt)).toMatchObject({ reason: "same_day_collision" });
+  });
+  it("pauses automated sends when sync is stale, but not manual ones", () => {
+    const stale = { ...policy, syncHealthy: false };
+    expect(checkEligibility(contact, stale, mkt)).toMatchObject({ reason: "sync_stale" });
+    expect(checkEligibility(contact, stale, { ...mkt, automated: false })).toEqual({ ok: true });
+  });
+  it("defers quiet-hour sends to 8am Manila", () => {
+    const ninePm = new Date("2026-10-30T13:00:00Z"); // 21:00 Manila
+    const r = checkEligibility(contact, policy, { ...mkt, now: ninePm });
+    expect(r).toMatchObject({ reason: "quiet_hours" });
+    if (!r.ok && r.reason === "quiet_hours") expect(r.deferUntil.toISOString()).toBe("2026-10-31T00:00:00.000Z");
+  });
+});
+
+describe("sms", () => {
+  it("counts GSM-7 and UCS-2 segments", () => {
+    expect(measureSms("a".repeat(160))).toMatchObject({ encoding: "GSM-7", segments: 1 });
+    expect(measureSms("a".repeat(161))).toMatchObject({ segments: 2 });
+    expect(measureSms("Hi 😊")).toMatchObject({ encoding: "UCS-2", segments: 1 });
+    expect(measureSms("😊" + "a".repeat(69))).toMatchObject({ encoding: "UCS-2", segments: 2 });
+    expect(measureSms("€".repeat(80))).toMatchObject({ encoding: "GSM-7", units: 160, segments: 1 });
+  });
+  it("prices per segment at P0.56", () => {
+    expect(smsCostCentavos("a".repeat(200))).toBe(112);
+  });
+  it("footer always has a reply path and stop link", () => {
+    expect(buildFooter({ replyPhone: "0917 123 4567", stopUrl: "https://revisit.example/s/x1" })).toContain("Stop msgs: https://revisit.example/s/x1");
+    expect(() => buildFooter({ stopUrl: "https://revisit.example/s/x1" })).toThrow();
+  });
+  it("flags discount wording only in marketing", () => {
+    const body = "Get 20% off cleaning this November";
+    expect(checkContent(body, { kind: "marketing", nameTreatmentsAllowed: true }).map((i) => i.code)).toContain("discount_wording");
+    expect(checkContent(body, { kind: "reminder", nameTreatmentsAllowed: true }).map((i) => i.code)).not.toContain("discount_wording");
+  });
+  it("matches shorteners by hostname, not substring", () => {
+    expect(checkContent("Book at pawcarevet.com/book", { kind: "recall", nameTreatmentsAllowed: true })).toEqual([]);
+    expect(checkContent("Book at https://t.co/abc", { kind: "recall", nameTreatmentsAllowed: true }).map((i) => i.code)).toContain("url_shortener");
+  });
+  it("flags codes, rewards, peso-off and Filipino claim wording", () => {
+    const mk = (b: string) => checkContent(b, { kind: "marketing", nameTreatmentsAllowed: true }).map((i) => i.code);
+    expect(mk("Use code SMILE for a free gift")).toContain("discount_wording");
+    expect(mk("Earn reward points every visit")).toContain("discount_wording");
+    expect(mk("P500 off whitening")).toContain("discount_wording");
+    expect(mk("Walang sakit na cleaning")).toContain("medical_claim");
+    expect(mk("We now offer Saturday check-ups")).toEqual([]);
+  });
+  it("flags TEST prefix, shorteners, claims and named treatments", () => {
+    const codes = checkContent("Test: painless root canal, book at bit.ly/x", { kind: "recall", nameTreatmentsAllowed: false }).map((i) => i.code);
+    expect(codes).toEqual(expect.arrayContaining(["starts_with_test", "url_shortener", "medical_claim", "names_treatment"]));
+  });
+});

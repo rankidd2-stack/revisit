@@ -1,0 +1,26 @@
+phase_id,phase,milestone,state
+0,0. Plan and setup,"Product spec, features, add-on backlog",done
+0,0. Plan and setup,"Agent roster: pm, reviewer, compliance-guard",done
+0,0. Plan and setup,Codebase scaffold and decision log,done
+1,1. Foundation,"Database schema: contacts, assets, consent ledger, mute list, campaign log",done
+1,1. Foundation,"Send gate: consent, mute, caps, dedupe, quiet hours, sync pause",in_review
+1,1. Foundation,"Recall engine: due dates, 4-step sequence, stop on booking",in_review
+1,1. Foundation,"CSV import: PH numbers and dates, muted numbers never re-added",in_review
+1,1. Foundation,Semaphore SMS client and SMS cost counter,in_review
+1,1. Foundation,Database wiring and Google Sheet sync,todo
+2,2. AI console prototype (sales demo),Clickable console: daily autopilot queue,todo
+2,2. AI console prototype (sales demo),"Goal-based campaign: type a goal, AI drafts and picks recipients",todo
+2,2. AI console prototype (sales demo),Photo or spreadsheet to patient list,todo
+2,2. AI console prototype (sales demo),Demo shown to 3 clinics,todo
+3,3. Sending live,Send pipeline with campaign log writes,todo
+3,3. Sending live,"Reminders, recall, no-show recovery, win-back",todo
+3,3. Sending live,Email with clinic Reply-To; stop-link page,todo
+3,3. Sending live,"Consent capture: intake form, VIP QR, YES reply",todo
+4,4. Paid pilot,"3 clinics paying P1,000 a month",todo
+4,4. Paid pilot,Sender names registered with Semaphore,todo
+4,4. Paid pilot,Data processing agreement and privacy notice ready,todo
+4,4. Paid pilot,ROI dashboard live per clinic,todo
+5,5. Growth,Announcement builder,todo
+5,5. Growth,Feedback form and testimonial composer,todo
+5,5. Growth,Weekly AI briefing and churn risk,todo
+5,5. Growth,10 paying clinics,todo

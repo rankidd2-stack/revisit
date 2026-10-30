@@ -1,0 +1,5 @@
+agent,role,runs_when
+Builder (main session),"Writes code, tests and docs; owns reversible decisions and logs them",Every work session
+pm,"Keeps STATUS.json and the decision log true; flags scope creep against locked decisions",End of each session and before a milestone closes
+reviewer,"Independent code review and test gaps; never reviews its own code",Before a milestone closes and after changes to sending or consent logic
+compliance-guard,"Checks texts, consent and data handling against DPA, NTC, DTI and Google rules",Before a milestone closes and when templates or stored fields change

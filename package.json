@@ -1,0 +1,17 @@
+{
+  "name": "revisit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Clinic retention console: recall, reminders, announcements, feedback (PH first)",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
+  }
+}

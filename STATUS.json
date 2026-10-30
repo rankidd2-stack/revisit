@@ -1,0 +1,72 @@
+{
+  "project": "Revisit (working name) -- clinic retention console",
+  "lastUpdated": "2026-10-30",
+  "currentPhase": 1,
+  "phases": [
+    {
+      "id": 0, "name": "Plan and setup", "state": "done",
+      "milestones": [
+        { "name": "Product spec, features, add-on backlog", "state": "done" },
+        { "name": "Agent roster: pm, reviewer, compliance-guard", "state": "done" },
+        { "name": "Codebase scaffold and decision log", "state": "done" }
+      ]
+    },
+    {
+      "id": 1, "name": "Foundation", "state": "in_progress",
+      "milestones": [
+        { "name": "Database schema: contacts, assets, consent ledger, mute list, campaign log", "state": "done" },
+        { "name": "Send gate: consent, mute, caps, dedupe, quiet hours, sync pause", "state": "in_review" },
+        { "name": "Recall engine: due dates, 4-step sequence, stop on booking", "state": "in_review" },
+        { "name": "CSV import: PH numbers and dates, muted numbers never re-added", "state": "in_review" },
+        { "name": "Semaphore SMS client and SMS cost counter", "state": "in_review" },
+        { "name": "Database wiring and Google Sheet sync", "state": "todo" }
+      ]
+    },
+    {
+      "id": 2, "name": "AI console prototype (sales demo)", "state": "todo",
+      "milestones": [
+        { "name": "Clickable console: daily autopilot queue", "state": "todo" },
+        { "name": "Goal-based campaign: type a goal, AI drafts and picks recipients", "state": "todo" },
+        { "name": "Photo or spreadsheet to patient list", "state": "todo" },
+        { "name": "Demo shown to 3 clinics", "state": "todo" }
+      ]
+    },
+    {
+      "id": 3, "name": "Sending live", "state": "todo",
+      "milestones": [
+        { "name": "Send pipeline with campaign log writes", "state": "todo" },
+        { "name": "Reminders, recall, no-show recovery, win-back", "state": "todo" },
+        { "name": "Email with clinic Reply-To; stop-link page", "state": "todo" },
+        { "name": "Consent capture: intake form, VIP QR, YES reply", "state": "todo" }
+      ]
+    },
+    {
+      "id": 4, "name": "Paid pilot", "state": "todo",
+      "milestones": [
+        { "name": "3 clinics paying P1,000 a month", "state": "todo" },
+        { "name": "Sender names registered with Semaphore", "state": "todo" },
+        { "name": "Data processing agreement and privacy notice ready", "state": "todo" },
+        { "name": "ROI dashboard live per clinic", "state": "todo" }
+      ]
+    },
+    {
+      "id": 5, "name": "Growth", "state": "todo",
+      "milestones": [
+        { "name": "Announcement builder", "state": "todo" },
+        { "name": "Feedback form and testimonial composer", "state": "todo" },
+        { "name": "Weekly AI briefing and churn risk", "state": "todo" },
+        { "name": "10 paying clinics", "state": "todo" }
+      ]
+    }
+  ],
+  "tests": { "passing": 41, "failing": 0 },
+  "needsPatrick": [
+    { "item": "Where should the code live?", "recommendation": "A private GitHub repo you own, so Claude Code on your computer and here work on the same code" },
+    { "item": "Create a Semaphore account and share an API key", "recommendation": "Prepaid credits only; no real sends until the pilot clinic approves" },
+    { "item": "Book 3 dental or vet clinic meetings for the prototype demo", "recommendation": "Target the week after the prototype ships" },
+    { "item": "Register the business (DTI) and send one email to DTI Pampanga on free events and announcements", "recommendation": "Claude drafts the email" },
+    { "item": "Legal check on dental testimonials", "recommendation": "One consult or a Philippine Dental Association inquiry; testimonials stay off for dental until then" },
+    { "item": "Brand name", "recommendation": "Keep Revisit as the working name until clinic feedback" }
+  ],
+  "flags": []
+}
