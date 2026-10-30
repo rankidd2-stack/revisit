@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { applySync } from "../src/sync/apply.js";
 import { syncHealth } from "../src/sync/health.js";
 import { fetchSheetCsv, sheetCsvUrl, sheetIdFromLink, syncSheet } from "../src/sync/sheet.js";
@@ -11,7 +11,8 @@ const count = async (t: string) => Number((await db.query<{ n: string }>(`select
 
 beforeEach(async () => {
   db = new PGlite();
-  for (const f of ["001_init.sql", "002_visits_unique.sql"]) await db.exec(readFileSync(new URL(`../db/migrations/${f}`, import.meta.url), "utf8"));
+  const dir = new URL("../db/migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.exec(readFileSync(new URL(f, dir), "utf8"));
   clinic = (await db.query<{ id: string }>(`insert into clinics (name, vertical) values ('Paw Care', 'vet') returning id`)).rows[0]!.id;
   await db.query(`insert into service_categories (clinic_id, name) values ($1, 'Rabies vaccine')`, [clinic]);
 });

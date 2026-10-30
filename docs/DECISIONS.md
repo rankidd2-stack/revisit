@@ -4,7 +4,7 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 
 | Date | Decision | By | Reversible? |
 | --- | --- | --- | --- |
-| 2026-10-30 | Database wiring split into four milestones; sync apply done (reviewer round 2 pass, compliance-guard round 2 pass); empty file or failed fetch = failed sync run; sync never changes clinic-owned status or names; migration 002 unique visit per day; branch not merged to main | Claude | Yes |
+| 2026-10-30 | Database wiring split into four milestones; sync apply done (reviewer round 2 pass, compliance-guard round 2 pass); empty file or failed fetch = failed sync run; sync never changes clinic-owned status or names; migration 003 (renumbered from 002 at integration) unique visit per asset, service and day; branch not merged to main | Claude | Yes |
 | 2026-10-30 | Compliance pass 1 fixes: single send pipeline (texts cannot skip checks), email mutes, append-only consent ledger, sender-name approval, service text mapped to clinic categories, dental testimonials blocked in schema, wider DTI and claim wording checks | Claude (from compliance-guard) | Yes |
 | 2026-10-30 | Vets may name pet care (vaccine, deworming) in texts; human clinics may not name treatments by default. Overrides compliance-guard's suggestion to block vet terms: pet records are not human health data | Claude | Yes |
 | 2026-10-30 | Working name "Revisit" for the codebase (placeholder); brand name is Patrick's call | Claude | Yes |
@@ -22,7 +22,7 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Milestone "Database wiring and Google Sheet sync" split into (a) sync apply, run log and Sheet CSV fetch with an injected fetcher (DONE), (b) real Google Sheet fetcher, (c) scheduled sync runner, (d) Philippines market pack split. (b), (c), (d) are todo.
 - An empty file or a failed fetch is recorded as a failed sync run, so automated sends pause and the clinic is alerted (locked decision 10).
 - Sync never changes clinic-owned status or names. Clinics own patient status.
-- New migration 002: one visit per contact per day (unique).
+- New migration 003 (numbered 002 on the branch; renumbered at integration because Database wiring 1 also used 002): one visit per asset, service and day (unique).
 - DEFERRED to (b): https-only, redirects limited to docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check.
 - DEFERRED to (c): scheduled runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock.
 - DEFERRED to (d): Philippines market pack split (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists).
