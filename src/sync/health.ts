@@ -15,7 +15,7 @@ export function syncHealth(runs: SyncRun[], now: Date, staleAfterHours = 72): Sy
   const finished = runs.filter((r) => r.finishedAt).sort((a, b) => b.finishedAt!.getTime() - a.finishedAt!.getTime());
   const lastOk = finished.find((r) => r.ok === true);
   if (!finished.length || !lastOk) return { healthy: false, reason: "never_synced", lastOkAt: null };
-  if (finished[0]!.ok === false) return { healthy: false, reason: "last_run_failed", lastOkAt: lastOk.finishedAt };
+  if (finished[0]!.ok !== true) return { healthy: false, reason: "last_run_failed", lastOkAt: lastOk.finishedAt };
   const ageHours = (now.getTime() - lastOk.finishedAt!.getTime()) / 3600_000;
   if (ageHours > staleAfterHours) return { healthy: false, reason: "stale", lastOkAt: lastOk.finishedAt };
   return { healthy: true, lastOkAt: lastOk.finishedAt! };

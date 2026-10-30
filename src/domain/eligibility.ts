@@ -39,7 +39,7 @@ export type Eligibility =
 
 export type BlockReason =
   | "inactive_status" | "muted" | "no_mobile" | "service_opted_out" | "no_marketing_consent"
-  | "duplicate_campaign" | "marketing_cap" | "recent_visit" | "same_day_collision" | "sync_stale";
+  | "duplicate_campaign" | "marketing_cap" | "recent_visit" | "same_day_collision" | "daily_recall_cap" | "sync_stale";
 
 export const DEFAULT_POLICY: Omit<ClinicPolicy, "syncHealthy"> = {
   marketingCapPer30d: 2,
@@ -84,6 +84,12 @@ export function checkEligibility(c: ContactState, p: ClinicPolicy, r: SendReques
     if (c.pastSends.some((s) => s.kind === other && manilaDate(s.sentAt) === today)) {
       return { ok: false, reason: "same_day_collision" };
     }
+  }
+
+  // One recall text per contact per Manila day: an owner with two pets due gets one merged text,
+  // which the caller builds; this gate stops a second one slipping through.
+  if (r.kind === "recall" && c.pastSends.some((s) => s.kind === "recall" && manilaDate(s.sentAt) === today)) {
+    return { ok: false, reason: "daily_recall_cap" };
   }
 
   const hour = manilaHour(r.now);

@@ -14,8 +14,9 @@ export interface SemaphoreMessage {
 }
 
 export interface SendResult {
-  accepted: SemaphoreMessage[];
-  errors: string[];
+  accepted: SemaphoreMessage[];   // Queued, Pending or Sent
+  failed: SemaphoreMessage[];     // Failed or Refunded: record against the send row, do not blindly retry
+  errors: string[];               // whole-call failures; recipients in that call were not accepted
 }
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; text(): Promise<string> }>;
@@ -38,10 +39,11 @@ export class SemaphoreClient {
       const key = `${s.senderName}\u0000${s.body}`;
       groups.set(key, [...(groups.get(key) ?? []), s]);
     }
-    const result: SendResult = { accepted: [], errors: [] };
+    const result: SendResult = { accepted: [], failed: [], errors: [] };
     for (const group of groups.values()) {
       const first = group[0]!;
-      for (const chunk of batch(group.map((g) => g.mobile))) {
+      const mobiles = [...new Set(group.map((g) => g.mobile))]; // never text one number twice in a call
+      for (const chunk of batch(mobiles)) {
         const body = new URLSearchParams({ apikey: this.apiKey, number: chunk.join(","), message: first.body, sendername: first.senderName });
         const res = await this.fetchImpl(SEMAPHORE_URL, {
           method: "POST",
@@ -49,8 +51,12 @@ export class SemaphoreClient {
           body: body.toString(),
         });
         if (!res.ok) { result.errors.push(`HTTP ${res.status}`); continue; } // never log response bodies: they echo numbers
-        const json = await res.json();
-        if (Array.isArray(json)) result.accepted.push(...(json as SemaphoreMessage[]));
+        let json: unknown;
+        try { json = await res.json(); } catch { result.errors.push("unreadable response"); continue; }
+        if (!Array.isArray(json)) { result.errors.push("unexpected response shape"); continue; } // Semaphore errors come back as objects with HTTP 200
+        for (const m of json as SemaphoreMessage[]) {
+          (m.status === "Failed" || m.status === "Refunded" ? result.failed : result.accepted).push(m);
+        }
       }
     }
     return result;

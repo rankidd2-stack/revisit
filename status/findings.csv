@@ -1,0 +1,28 @@
+id,agent,severity,area,finding,status
+C1,compliance-guard,fail,Privacy,Opt-out for email-only contacts did not survive re-import,fixed
+C2,compliance-guard,risk,Privacy,Consent proof was deleted with the contact and could be edited,fixed
+C3,compliance-guard,risk,Privacy,Free-text service and tag fields could hold clinical detail,fixed
+C4,compliance-guard,risk,SMS rules,Nothing forced the footer and checks to run before a send,fixed
+C5,compliance-guard,risk,SMS rules,Sender name had no approval state or length limit,fixed
+C6,compliance-guard,risk,Lock-screen privacy,Treatment blocklist missed common service names,fixed
+C7,compliance-guard,risk,DTI promos,"Wording check missed codes, rewards, peso-off and Filipino terms",fixed
+C8,compliance-guard,risk,Medical claims,"Claim check missed pain-free, before-and-after and Filipino wording",fixed
+C9,compliance-guard,risk,Testimonials,Nothing stopped a dental clinic enabling testimonials,fixed
+C10,compliance-guard,nit,SMS rules,Shortener check matched substrings (t.co inside other domains),fixed
+C11,compliance-guard,not built yet,Privacy,Data processing agreement template for clinics,open
+C12,compliance-guard,not built yet,Google reviews,Same-link review flow,open
+R1,reviewer,blocker,Recall,Years-old visits would get "you are due" texts (no lookback limit),fixed
+R2,reviewer,blocker,Import,Date fallback invented visit dates (e.g. "12" became 2001-12-01),fixed
+R3,reviewer,blocker,Send log,Recall and reminder sends were not deduplicated in the database,fixed
+R4,reviewer,blocker,Database,Unformatted mobiles bypassed dedupe and the mute list,fixed
+R5,reviewer,blocker,Send pipeline,"Empty stop link, broken Messenger fallback, no approval required",fixed
+R6,reviewer,blocker,Privacy,Contact deletion (erasure request) was impossible,fixed
+R7,reviewer,should-fix,SMS rules,Shortener check missed links next to punctuation,fixed
+R8,reviewer,should-fix,Lock-screen privacy,Taglish and singular treatment names passed,fixed
+R9,reviewer,should-fix,Import,Vet files texted the pet's name instead of the owner's,fixed
+R10,reviewer,should-fix,Import,"Unclosed quotes, junk emails, in-file duplicates, line drift",fixed
+R11,reviewer,should-fix,Sync,A sync with unknown result counted as healthy,fixed
+R12,reviewer,should-fix,Send gate,Owner with two pets due got two recall texts in a day,fixed
+R13,reviewer,should-fix,SMS gateway,Gateway errors and failed messages were silently dropped,fixed
+R14,reviewer,should-fix,Database,Rows could point at another clinic's data; free-text services,fixed
+R15,reviewer,should-fix,SMS cost,Segment count could be off; curly quotes tripled cost,fixed

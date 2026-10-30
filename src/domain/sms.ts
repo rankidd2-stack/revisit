@@ -7,27 +7,52 @@ const GSM7_EXTENDED = "^{}\\[~]|€\f";
 
 export interface SmsSize {
   encoding: "GSM-7" | "UCS-2";
-  units: number;          // characters counted (extended GSM chars count as 2)
+  units: number;          // septets (GSM-7) or UTF-16 code units (UCS-2)
   segments: number;
   perSegment: number;
 }
 
+/**
+ * Packs characters into segments greedily, never splitting a GSM escape pair or a UTF-16
+ * surrogate pair across a segment boundary (which is what real handsets and gateways do).
+ */
+function pack(sizes: number[], single: number, multi: number): number {
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (total === 0) return 0;
+  if (total <= single) return 1;
+  let segments = 1;
+  let used = 0;
+  for (const s of sizes) {
+    if (used + s > multi) { segments++; used = 0; }
+    used += s;
+  }
+  return segments;
+}
+
 export function measureSms(text: string): SmsSize {
-  let units = 0;
-  let gsm = true;
-  for (const ch of text) {
-    if (GSM7_BASIC.includes(ch)) units += 1;
-    else if (GSM7_EXTENDED.includes(ch)) units += 2;
-    else { gsm = false; break; }
-  }
+  const chars = [...text];
+  const gsm = chars.every((ch) => GSM7_BASIC.includes(ch) || GSM7_EXTENDED.includes(ch));
   if (gsm) {
-    const segments = units <= 160 ? 1 : Math.ceil(units / 153);
-    return { encoding: "GSM-7", units, segments: Math.max(segments, units === 0 ? 0 : 1), perSegment: units <= 160 ? 160 : 153 };
+    const sizes = chars.map((ch) => (GSM7_EXTENDED.includes(ch) ? 2 : 1));
+    const units = sizes.reduce((a, b) => a + b, 0);
+    return { encoding: "GSM-7", units, segments: pack(sizes, 160, 153), perSegment: units <= 160 ? 160 : 153 };
   }
-  // UCS-2: count UTF-16 code units (emoji take 2).
-  const u = text.length;
-  const segments = u <= 70 ? 1 : Math.ceil(u / 67);
-  return { encoding: "UCS-2", units: u, segments, perSegment: u <= 70 ? 70 : 67 };
+  const sizes = chars.map((ch) => ch.length); // emoji and other astral chars are 2 code units
+  const units = sizes.reduce((a, b) => a + b, 0);
+  return { encoding: "UCS-2", units, segments: pack(sizes, 70, 67), perSegment: units <= 70 ? 70 : 67 };
+}
+
+/**
+ * Replaces characters that silently force UCS-2 (and roughly triple the cost) with GSM-7
+ * equivalents. AI drafts are full of curly quotes and long dashes.
+ */
+export function normalizeForSms(text: string): string {
+  return text
+    .replace(/[‘’‚′]/g, "'")
+    .replace(/[“”„″]/g, '"')
+    .replace(/[–—−]/g, "-")
+    .replace(/…/g, "...")
+    .replace(/[   ]/g, " ");
 }
 
 /** Cost in PHP centavos for one recipient. Default Semaphore rate P0.56 per segment, ex VAT. */
@@ -40,13 +65,21 @@ export interface FooterInput {
   replyEmail?: string | null;
   messengerUrl?: string | null;
   stopUrl: string;
+  stopLinkHost: string;   // our own domain; stop links never point anywhere else
 }
 
-/** Every text ends with a reply path and a stop link (locked decision 2). */
+const present = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+
+/** Every text ends with a reply path and a stop link on our own domain (locked decision 2). */
 export function buildFooter(f: FooterInput): string {
-  const reply = f.replyPhone ?? f.messengerUrl ?? f.replyEmail;
+  const reply = present(f.replyPhone) ?? present(f.messengerUrl) ?? present(f.replyEmail);
   if (!reply) throw new Error("Clinic has no reply path (phone, Messenger or email)");
-  return `\nReply: ${reply}\nStop msgs: ${f.stopUrl}`;
+  let url: URL;
+  try { url = new URL(f.stopUrl); } catch { throw new Error("Stop link is not a valid URL"); }
+  if (url.protocol !== "https:" || url.hostname !== f.stopLinkHost || url.pathname.length < 3) {
+    throw new Error(`Stop link must be an https link on ${f.stopLinkHost}`);
+  }
+  return `\nReply: ${reply}\nStop msgs: ${url.toString()}`;
 }
 
 const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "goo.gl", "t.co", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "shorturl.at", "s.id", "tiny.cc", "rebrand.ly", "t.ly", "buff.ly"]);
@@ -60,10 +93,10 @@ const CLAIM_WORDS = [
   /100\s*%/i, /\bpermanent results?\b/i, /\bbefore[- ]and[- ]after\b/i, /\binstant results?\b/i, /\b(?:totally|completely|100%) safe\b/i,
 ];
 
-/** Hostnames of every URL in the text (with or without scheme). */
+/** Hostnames of every URL-like token, tolerant of trailing punctuation and wrapping brackets. */
 function hostnames(body: string): string[] {
   const out: string[] = [];
-  const re = /\b(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?=[\/\s?#]|$)/gi;
+  const re = /(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?![a-z0-9-])/gi;
   for (const m of body.matchAll(re)) out.push(m[1]!.toLowerCase().replace(/^www\./, ""));
   return out;
 }
@@ -83,12 +116,16 @@ export interface ContentCheckOptions {
 }
 
 // Human treatments are health data under the DPA, so they stay off lock screens by default.
+// Stems match plurals and Taglish forms ("brace" matches "braces", "pasta" = filling, "bunot" = extraction).
 // Pet care (vaccines, deworming) is not human health data and is useful in a reminder, so vets
 // only block euthanasia wording by default.
 const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
-  human: ["extraction", "root canal", "botox", "filler", "braces", "denture", "implant", "whitening", "gum disease", "laser"],
+  human: ["extraction", "root canal", "rct", "botox", "filler", "brace", "denture", "implant", "whitening",
+    "gum disease", "laser", "filling", "pasta", "bunot", "pustiso", "retainer", "aligner"],
   vet: ["euthan"],
 };
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function checkContent(body: string, opts: ContentCheckOptions): ContentIssue[] {
   const issues: ContentIssue[] = [];
@@ -108,8 +145,8 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
   }
   if (!opts.nameTreatmentsAllowed) {
     const terms = [...DEFAULT_SENSITIVE[opts.vertical === "vet" ? "vet" : "human"], ...(opts.sensitiveTerms ?? [])];
-    for (const t of terms) {
-      if (body.toLowerCase().includes(t.toLowerCase())) {
+    for (const t of new Set(terms.map((x) => x.trim().toLowerCase()).filter(Boolean))) {
+      if (new RegExp(`\\b${escapeRe(t)}`, "i").test(body)) {
         issues.push({ code: "names_treatment", message: `"${t}" names a treatment; default texts must not (lock-screen privacy).` });
       }
     }

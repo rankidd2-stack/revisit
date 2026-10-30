@@ -1,5 +1,7 @@
 -- Revisit foundation schema (Postgres / Supabase compatible)
 -- Data minimization: no diagnoses, notes, prescriptions or photos anywhere in this schema.
+-- Tenant integrity: every child row carries clinic_id and references its parent by (clinic_id, id),
+-- so a row can never point at another clinic's data.
 
 create table clinics (
   id uuid primary key default gen_random_uuid(),
@@ -13,18 +15,28 @@ create table clinics (
   google_review_url text,
   timezone text not null default 'Asia/Manila',
   name_treatments_in_sms boolean not null default false,  -- lock-screen privacy opt-in
-  testimonials_enabled boolean not null default false,    -- off by default; off for dental until legal check
-  marketing_cap_per_30d int not null default 2,
+  testimonials_enabled boolean not null default false,
+  marketing_cap_per_30d int not null default 2 check (marketing_cap_per_30d between 0 and 8),
   sync_stale_after_hours int not null default 72,
   created_at timestamptz not null default now(),
   -- testimonials stay off for dental until a legal check (locked decision 7)
   constraint no_dental_testimonials check (not (vertical = 'dental' and testimonials_enabled))
 );
 
+-- The clinic's own service list. Visits, appointments and recall rules can only use these names,
+-- so free-text clinical detail has nowhere to go.
+create table service_categories (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references clinics(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  unique (clinic_id, id),
+  unique (clinic_id, name)
+);
+
 -- Tags come from a vocabulary the clinic defines, never free text about a patient.
 create table clinic_tags (
   clinic_id uuid not null references clinics(id) on delete cascade,
-  tag text not null check (char_length(tag) <= 40),
+  tag text not null check (char_length(tag) between 1 and 40),
   primary key (clinic_id, tag)
 );
 
@@ -33,71 +45,99 @@ create table contacts (
   clinic_id uuid not null references clinics(id) on delete cascade,
   full_name text not null,
   display_name text,                     -- first name + last initial, for testimonials
-  mobile text,                           -- 639XXXXXXXXX
-  email text,
+  mobile text check (mobile ~ '^639[0-9]{9}$'),
+  email text check (email = lower(email)),
   external_ref text,                     -- id in the clinic's own system
-  tags text[] not null default '{}',     -- app validates against clinic_tags
   status text not null default 'active' check (status in ('active','moved','deceased','do_not_contact')),
   created_at timestamptz not null default now(),
+  check (mobile is not null or email is not null),
+  unique (clinic_id, id),
   unique (clinic_id, mobile)
+);
+create unique index contacts_clinic_email on contacts (clinic_id, email) where email is not null;
+
+create table contact_tags (
+  clinic_id uuid not null,
+  contact_id uuid not null,
+  tag text not null,
+  primary key (clinic_id, contact_id, tag),
+  foreign key (clinic_id, contact_id) references contacts (clinic_id, id) on delete cascade,
+  foreign key (clinic_id, tag) references clinic_tags (clinic_id, tag) on delete cascade
 );
 
 -- Assets: the contact themself, a pet, a child, a package. Recall attaches here.
 create table assets (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  contact_id uuid not null references contacts(id) on delete cascade,
+  contact_id uuid not null,
   kind text not null check (kind in ('self','dependent','pet','package','other')),
-  label text not null,                   -- "Self", "Bantay", "Mika (daughter)"
-  species text,                          -- vets only
-  active boolean not null default true
+  label text not null check (char_length(label) <= 60),   -- "Self", "Bantay", "Mika (daughter)"
+  species text check (species in ('dog','cat','bird','rabbit','other')),
+  active boolean not null default true,
+  unique (clinic_id, id),
+  foreign key (clinic_id, contact_id) references contacts (clinic_id, id) on delete cascade
 );
 
--- Service category only, never clinical detail.
 create table recall_rules (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  service_category text not null,        -- "Dental check-up", "Rabies vaccine"
+  service_category_id uuid not null,
   interval_days int not null check (interval_days > 0),
   step_offsets_days int[] not null default '{-7,0,14,60}',
-  active boolean not null default true
+  active boolean not null default true,
+  approved_by text,                      -- automation approval (locked decision 12)
+  unique (clinic_id, id),
+  foreign key (clinic_id, service_category_id) references service_categories (clinic_id, id)
 );
 
 create table visits (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  asset_id uuid not null references assets(id) on delete cascade,
-  service_category text not null,
-  visited_on date not null,
-  source text not null default 'sync'
+  asset_id uuid not null,
+  service_category_id uuid not null,
+  visited_on date not null check (visited_on >= date '2000-01-01'),
+  source text not null default 'sync',
+  unique (clinic_id, id),
+  foreign key (clinic_id, asset_id) references assets (clinic_id, id) on delete cascade,
+  foreign key (clinic_id, service_category_id) references service_categories (clinic_id, id)
 );
 
 create table appointments (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  asset_id uuid not null references assets(id) on delete cascade,
-  service_category text not null,
+  asset_id uuid not null,
+  service_category_id uuid not null,
   starts_at timestamptz not null,
-  status text not null default 'booked' check (status in ('booked','confirmed','cancelled','completed','no_show'))
+  status text not null default 'booked' check (status in ('booked','confirmed','cancelled','completed','no_show')),
+  unique (clinic_id, id),
+  foreign key (clinic_id, asset_id) references assets (clinic_id, id) on delete cascade,
+  foreign key (clinic_id, service_category_id) references service_categories (clinic_id, id)
 );
 
 -- Consent ledger: append-only. Latest row per (contact, purpose) wins.
 create table consent_events (
   id uuid primary key default gen_random_uuid(),
-  clinic_id uuid not null references clinics(id) on delete cascade,
+  clinic_id uuid not null references clinics(id) on delete restrict,
   contact_id uuid references contacts(id) on delete set null,  -- the proof outlives the contact
   mobile_snapshot text,                  -- who consented, kept if the contact is deleted
   email_snapshot text,
   purpose text not null check (purpose in ('service','marketing','testimonial')),
   granted boolean not null,
-  channel text not null,                 -- intake_form, qr, sms_yes, stop_link, staff, google_form
+  channel text not null check (channel in ('intake_form','qr','sms_yes','stop_link','staff','google_form')),
   text_version text not null,            -- which consent wording the person saw
-  captured_by text,                      -- staff user id, or 'patient' for self-service
+  captured_by text not null,             -- staff user id, or 'patient' for self-service
   recorded_at timestamptz not null default now()
 );
 
+-- Rows can never be edited or deleted, with one exception: the foreign key may be cleared when a
+-- contact is erased (DPA erasure request), so the snapshot keeps the proof without the link.
 create function forbid_consent_changes() returns trigger language plpgsql as $$
 begin
+  if tg_op = 'UPDATE'
+     and new.contact_id is null and old.contact_id is not null
+     and (to_jsonb(new) - 'contact_id') = (to_jsonb(old) - 'contact_id') then
+    return new;
+  end if;
   raise exception 'consent_events is append-only';
 end $$;
 create trigger consent_events_append_only before update or delete on consent_events
@@ -108,9 +148,10 @@ create table mutes (
   clinic_id uuid not null references clinics(id) on delete cascade,
   kind text not null check (kind in ('mobile','email')),
   value text not null,                   -- 639XXXXXXXXX or lowercased email
-  reason text not null,                  -- stop_link, staff, deceased, moved
+  reason text not null check (reason in ('stop_link','staff','deceased','moved')),
   muted_at timestamptz not null default now(),
-  primary key (clinic_id, kind, value)
+  primary key (clinic_id, kind, value),
+  check ((kind = 'mobile' and value ~ '^639[0-9]{9}$') or (kind = 'email' and value = lower(value) and value like '%@%'))
 );
 
 create table campaigns (
@@ -124,28 +165,43 @@ create table campaigns (
   approved_by text,
   scheduled_for timestamptz,
   created_at timestamptz not null default now(),
-  constraint marketing_is_announcement check (kind <> 'marketing' or announcement_type is not null)
+  unique (clinic_id, id),
+  constraint marketing_is_announcement check (kind <> 'marketing' or announcement_type is not null),
+  constraint live_needs_approval check (status not in ('scheduled','live') or approved_by is not null)
 );
 
--- Every send is logged here; dedupe and caps read from this table.
+-- Every send is logged against an event (locked decision 11). The event key is unique per contact:
+--   campaign:<campaign_id> | recall:<asset_id>:<rule_id>:<due_on>:<step> | reminder:<appointment_id>:<slot> | feedback:<visit_id>
 create table sends (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  campaign_id uuid references campaigns(id),
-  contact_id uuid not null references contacts(id) on delete cascade,
-  kind text not null,
+  contact_id uuid not null,
+  event_key text not null check (event_key ~ '^(campaign|recall|reminder|feedback):'),
+  kind text not null check (kind in ('reminder','recall','marketing','feedback')),
+  campaign_id uuid,
+  asset_id uuid,
+  recall_rule_id uuid,
+  cycle_due_on date,
+  step_offset_days int,
   channel text not null check (channel in ('sms','email')),
+  approved_by text not null,
   provider_message_id text,
-  segments int,
-  status text not null default 'queued',
+  segments int check (segments >= 0),
+  status text not null default 'queued' check (status in ('queued','accepted','sent','failed','refunded')),
   sent_at timestamptz not null default now(),
-  unique (campaign_id, contact_id)
+  unique (clinic_id, contact_id, event_key),
+  foreign key (clinic_id, contact_id) references contacts (clinic_id, id) on delete cascade,
+  foreign key (clinic_id, campaign_id) references campaigns (clinic_id, id),
+  foreign key (clinic_id, asset_id) references assets (clinic_id, id) on delete set null (asset_id),
+  foreign key (clinic_id, recall_rule_id) references recall_rules (clinic_id, id),
+  check (kind <> 'recall' or (asset_id is not null and recall_rule_id is not null and cycle_due_on is not null and step_offset_days is not null)),
+  check (kind <> 'marketing' or campaign_id is not null)
 );
 
 create table sync_runs (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references clinics(id) on delete cascade,
-  source text not null,                  -- csv, google_sheet, webhook
+  source text not null check (source in ('csv','google_sheet','webhook')),
   started_at timestamptz not null default now(),
   finished_at timestamptz,
   ok boolean,
