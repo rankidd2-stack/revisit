@@ -16,9 +16,11 @@ My answers to the open questions (log them in docs/DECISIONS.md and clear them f
 - You may merge into main whenever docs/AUTOPILOT.md step 7 allows it.
 
 Plan for this session:
+0. Take the builder lock first (AUTOPILOT step 0) as live-<UTC time>. If it is BUSY, tell me who holds
+   it and stop. Refresh it as the playbook says; release it after the hand-off.
 1. Integrate first (AUTOPILOT step 2). Merge every unmerged claude/ branch into main, oldest first:
    renumber clashing migrations, fix their open blockers, pass reviewer and compliance-guard, keep the
-   suite green, delete each branch after merging.
+   suite green.
 2. Then work milestone by milestone through Phase 1 and Phase 2 (the clickable demo console, built
    only from design/), following AUTOPILOT steps 3 to 7 for each.
 3. After every merge run `npm run status`, commit and push, so docs/STATUS.md on GitHub is current.

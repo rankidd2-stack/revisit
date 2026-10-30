@@ -3,6 +3,18 @@
 Every run (scheduled or started by Patrick) begins with no memory of earlier runs. This file, CLAUDE.md,
 STATUS.json, docs/DECISIONS.md, docs/SPEC.md and design/README.md are the memory. Follow the steps in order.
 
+## 0. Take the builder lock (never skip)
+Only one builder works on this repo at a time; scheduled runs and live sessions share one lock, so nobody
+has to pause anything. Pick a builder id once and reuse it all run: `scheduled-<UTC yyyymmddThhmmZ>` for a
+scheduled run, `live-<UTC yyyymmddThhmmZ>` for a session Patrick started.
+- `scripts/lock.sh take <id>`. Exit 3 (BUSY) means another builder is working: end the run at once with
+  the hand-off "Skipped: <the BUSY line>". Change nothing, push nothing.
+- While working: `scripts/lock.sh refresh <id>` about every 90 minutes and before every push to main.
+  Exit 4 (LOST) means another builder took over a lock you let go stale: stop, push your branch only,
+  and end with the hand-off "Stopped: lost the lock".
+- At the very end, after the hand-off is written (also when ending early or on failure):
+  `scripts/lock.sh release <id>`.
+
 ## 1. Load context
 - Read CLAUDE.md, STATUS.json, the last 80 lines of docs/DECISIONS.md, and the rows of status/findings.csv
   whose status is not `fixed`. Read docs/SPEC.md and design/README.md when the milestone needs them.
@@ -11,7 +23,7 @@ STATUS.json, docs/DECISIONS.md, docs/SPEC.md and design/README.md are the memory
 
 ## 2. Integrate before building (never skip)
 - List remote branches not merged into main: `git branch -r --no-merged origin/main`.
-- Every `claude/` branch in that list is unfinished work from an earlier run. Finish it before starting
+- Every `claude/` branch in that list, except `claude/autopilot-lock`, is unfinished work from an earlier run. Finish it before starting
   anything new, oldest first:
   1. Merge it onto current main and resolve conflicts. Generated files (status/*.csv, docs/STATUS.md) are
      never hand-merged: take either side, then run `npm run status`. Two migrations with the same number:
@@ -19,7 +31,7 @@ STATUS.json, docs/DECISIONS.md, docs/SPEC.md and design/README.md are the memory
   2. Fix every open blocker recorded for it in status/findings.csv.
   3. Review and merge it per steps 5 to 7.
 - A branch parked only for a Patrick decision (a matching `needsPatrick` entry) is skipped, not merged.
-- Delete a branch from origin once merged: `git push origin --delete <branch>`.
+- Don't delete merged branches (this environment refuses deletes); `--no-merged` already skips them.
 
 ## 3. Pick one milestone
 - The first milestone in STATUS.json with state `in_progress`, else `todo`, in `currentPhase`, else the next phase.
@@ -51,8 +63,9 @@ Patrick has authorized runs to push to main. Merge when ALL are true:
 - the change does not touch Patrick's decision rights: money or pricing, legal or compliance posture, sending
   to real patients, deleting data, or reversing a locked decision.
 
-Then: `git checkout main && git pull && git merge --no-ff <branch> && npm test && git push origin main`,
-and delete the branch from origin. If the push is refused, say so in the hand-off and leave the branch.
+Then: `scripts/lock.sh refresh <id>`, and
+`git checkout main && git pull && git merge --no-ff <branch> && npm test && git push origin main`.
+If the push is refused, say so in the hand-off and leave the branch.
 
 Otherwise push the branch, open a pull request, and add a `needsPatrick` entry that names the exact question
 in plain words with a recommended answer.
@@ -64,10 +77,12 @@ in plain words with a recommended answer.
 - No em dashes in any copy. Product name is "Revisit" (placeholder); no Filipino words in branding.
 - Commit messages end with the attribution lines the session provides.
 
-## 8. Hand-off
+## 8. Hand-off and release
 End every run with five lines, also used as the merge commit body or PR description:
 1. What was integrated and which milestone was worked on, with the result (merged / parked / blocked)
 2. Tests: passing count
 3. Agent verdicts
 4. Decisions logged
 5. What Patrick needs to do, in plain words (or "nothing")
+
+Then `scripts/lock.sh release <id>`.
