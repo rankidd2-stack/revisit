@@ -47,11 +47,29 @@ R25,reviewer,should-fix,Send pipeline,A comma in the mobile field could add a se
 R26,reviewer,should-fix,Privacy,An opt-out could be unlinked from a living contact,fixed
 R27,reviewer,should-fix,Send log,A second send for one campaign could slip in under a new key,fixed
 R28,reviewer,should-fix,Import,Merges lost emails; Excel short dates and times were rejected,fixed
-R29,reviewer,should-fix,Send gate inputs,An infinite or unreadable timestamp made sync health and consent checks pass,fixed
-R30,reviewer,should-fix,Sync,"Clinic staleness threshold had no ceiling, so the sync pause could be switched off",fixed
-R31,reviewer,should-fix,Send gate inputs,Visit and timestamp text followed the session date style; a non-ISO style broke the 7-day rule,fixed
-R32,reviewer,should-fix,Privacy,"Consent snapshots had no format check, so an erased contact's opt-out could stop matching",fixed
-R33,reviewer,should-fix,Decision log,Loader design choices were not logged,fixed
+R29,reviewer,should-fix,Sync,Failed-run logging in syncSheet could throw if the database is down,fixed
+R30,reviewer,should-fix,Sync,Bad clinic id threw before the clinic_not_found path,fixed
+R31,reviewer,should-fix,Sync,A failing final log write after commit marks the run failed (safe direction),fixed
+R32,reviewer,should-fix,Sync,cleanName fell back to the raw name, which could keep a note,fixed
+R33,reviewer,nit,Database,Round 2 suggestion 6 (contact uniqueness) was mistaken: unique mobile and email indexes already exist,deferred
+G9,compliance-guard,pass,Sync,Round 2 pass on sync apply: empty file or failed fetch logs a failed run; sync leaves clinic-owned status and names alone,fixed
+G10,pm,risk,Sync,"Real Sheet fetcher not built: https-only, redirect allowlist, timeout, byte cap, content-type check",deferred
+G11,pm,risk,Sync,"Scheduled runner, stale unfinished runs as failed, clinic alert, advisory lock not built",deferred
+R76,reviewer,nit,Database,"No migration runner yet; when built it must record each applied file, not only the highest number (002 merges after 003)",deferred
+R77,reviewer,nit,Sync,An email-only row matched to a contact whose mobile is muted still adds visits; the send gate blocks the send,deferred
+R78,reviewer,nit,Sync,A row matched by email to a contact with no mobile does not fill the mobile in,deferred
+R79,reviewer,nit,Sync,A mute-blocked insert was counted as skipped-inactive; now its own counter,fixed
+R80,reviewer,nit,Sync,"3 to 5 queries per row in one transaction; batch lookups in the runner milestone",deferred
+R81,reviewer,nit,Sync,"Patient ID accepted any single token (""HIV+""); now ID characters only with a digit",fixed
+R82,reviewer,should-fix,Tests,"Missing tests: patient ID filter, unknown service, duplicate visit index, non-code fetch error",fixed
+G23,compliance-guard,risk,Sync,"SyncOutcome.result carries patient rows; the scheduled runner must log counts only",deferred
+G24,compliance-guard,nit,Sync,A sync with a very high rejection rate still counts as ok; flag it to the clinic in the runner milestone,deferred
+G25,compliance-guard,nit,Recall,Visits can attach to a deactivated pet; recall eligibility must keep checking assets.active,deferred
+R83,reviewer,should-fix,Send gate inputs,An infinite or unreadable timestamp made sync health and consent checks pass,fixed
+R84,reviewer,should-fix,Sync,"Clinic staleness threshold had no ceiling, so the sync pause could be switched off",fixed
+R85,reviewer,should-fix,Send gate inputs,Visit and timestamp text followed the session date style; a non-ISO style broke the 7-day rule,fixed
+R86,reviewer,should-fix,Privacy,"Consent snapshots had no format check, so an erased contact's opt-out could stop matching",fixed
+R87,reviewer,should-fix,Decision log,Loader design choices were not logged,fixed
 R34,reviewer,nit,Sync,A failed and a good sync run at the same moment could read as healthy,fixed
 R35,reviewer,nit,Send pipeline,A scheduled campaign stays approved long after its time if the scheduler was down,deferred
 R36,reviewer,should-fix,Send pipeline,Caps and same-day rules are not enforced under concurrent senders; lock the contact and re-check at send time. Required before the send pipeline milestone passes,deferred
@@ -65,9 +83,9 @@ R43,reviewer,nit,Privacy,Contact and mute emails were not required to be trimmed
 R44,reviewer,nit,Tests,Constraint tests did not check which constraint refused the row,fixed
 R45,reviewer,nit,Tests,Schema tests loaded only the first migration,fixed
 R46,reviewer,nit,SMS rules,"Allowlist scope beyond dental, and linis, not tracked",fixed
-G9,compliance-guard,risk,Privacy,"Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period",open
-G10,compliance-guard,risk,Privacy,An opt-out without a number or email snapshot would vanish on erasure,fixed
-G11,compliance-guard,risk,Privacy,"Imports must never write consent rows, or a re-import could undo a stop",open
+G26,compliance-guard,risk,Privacy,"Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period",open
+G27,compliance-guard,risk,Privacy,An opt-out without a number or email snapshot would vanish on erasure,fixed
+G28,compliance-guard,risk,Privacy,"Imports must never write consent rows, or a re-import could undo a stop",open
 G12,compliance-guard,risk,SMS rules,Allowlist covers aesthetic and other clinics; Patrick's reasons were dental,fixed
 G13,compliance-guard,risk,Privacy,Allowlist applied to texts about dependents without Patrick's decision,fixed
 R47,reviewer,blocker,SMS rules,"Words under 3 letters were dropped from blocked categories, so TB, OB or ED check-up texts reached patients",fixed

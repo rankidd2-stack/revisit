@@ -9,6 +9,7 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 | 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
 | 2026-10-30 | "Cleaning", "check-up" and "consultation" allowed in default patient texts, including when they are a clinic's own service category names (explicit English allowlist). Default treatment list unchanged | Patrick | Yes |
 | 2026-10-30 | Which qualifiers may sit before an allowed word (dental, teeth, tooth, general, routine, regular, annual) is Claude's reading of Patrick's allowlist decision, not Patrick's own list | Claude | Yes |
+| 2026-10-30 | Database wiring split into four milestones; sync apply done (reviewer round 2 pass, compliance-guard round 2 pass); empty file or failed fetch = failed sync run; sync never changes clinic-owned status or names; migration 003 (renumbered from 002 at integration) unique visit per asset, service and day; branch not merged to main | Claude | Yes |
 | 2026-10-30 | Compliance pass 1 fixes: single send pipeline (texts cannot skip checks), email mutes, append-only consent ledger, sender-name approval, service text mapped to clinic categories, dental testimonials blocked in schema, wider DTI and claim wording checks | Claude (from compliance-guard) | Yes |
 | 2026-10-30 | Vets may name pet care (vaccine, deworming) in texts; human clinics may not name treatments by default. Overrides compliance-guard's suggestion to block vet terms: pet records are not human health data | Claude | Yes |
 | 2026-10-30 | Working name "Revisit" for the codebase (placeholder); brand name is Patrick's call | Claude | Yes |
@@ -21,6 +22,17 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 | 2026-10-28 | Registered sender name SMS, reply path and stop link in every text; no own SIMs | Patrick | No (carrier rules) |
 | 2026-10-28 | Launch verticals: dental and vet; aesthetics later | Patrick | Yes |
 | 2026-10-28 | No patient chatbot; replies go to the clinic | Patrick | Yes |
+
+## 2026-10-30 -- Sync apply (reviewer round 2: pass; compliance-guard round 2: pass; 136 tests)
+- Milestone "Database wiring and Google Sheet sync" split into (a) sync apply, run log and Sheet CSV fetch with an injected fetcher (DONE), (b) real Google Sheet fetcher, (c) scheduled sync runner, (d) Philippines market pack split. (b), (c), (d) are todo.
+- An empty file or a failed fetch is recorded as a failed sync run, so automated sends pause and the clinic is alerted (locked decision 10).
+- Sync never changes clinic-owned status or names. Clinics own patient status.
+- New migration 003 (numbered 002 on the branch; renumbered at integration because Database wiring 1 also used 002): one visit per asset, service and day (unique).
+- DEFERRED to (b): https-only, redirects limited to docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check.
+- DEFERRED to (c): scheduled runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock.
+- DEFERRED to (d): Philippines market pack split (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists).
+- Reviewer round 2 suggestions 1-4 fixed in code. Suggestion 6 was mistaken: contacts already have unique mobile and email indexes, so nothing changed.
+- The branch was NOT merged to main because this session is restricted to branch claude/charming-pascal-tycjpp. Merge is still to do.
 
 ## 2026-10-30 -- Reviewer pass 2
 - FIXED (blocker): send kind is now derived from the event (campaign = marketing, always). The caller can no longer label a promo as a reminder to skip consent, caps and the discount check. DB constraint `kind_matches_event` enforces the same.
@@ -122,3 +134,36 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
   3. Strip bracketed notes and text after " - " from full names on import, as asset labels already are.
   4. R73: make cardi, breast and therap whole-word or more specific ("cardiolog", "breast exam", "therapy session"?), and spare "Cardinal" and "Tuliahan". R74 comment fix. R75 tests for all of the above.
 - Round count: rounds 4, 5 and 6 ran in this run, so per AUTOPILOT step 5 the branch is parked and the run ends. claude/charming-pascal-tycjpp is not merged this run, though it is ready (migration renumbered to 003, 136 tests on its own).
+| 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
+
+
+## 2026-10-31 -- Direction for the parked branch (Claude, code structure; overrides the round-6 fix plan)
+Six reviewer rounds on `claude/eager-turing-bwpp43` (R47 to R75) all came from one design: judging free text
+for health words while making exceptions so names don't trip it. Each exception opened a hole. Stop patching
+the matcher; take free text out of patient texts instead.
+1. Templates may use only these variables: `{first_name}`, `{pet_name}`, `{clinic}`. Remove `{last_name}` and
+   `{full_name}` from the template language; a template using any other placeholder is refused at approval.
+2. `first_name` is derived, never typed into a text: take the contact's name, drop bracketed text and anything
+   after " - ", take the first word, keep letters (any script), apostrophes and hyphens, cap 20 characters,
+   title-case it. "Ana Cruz (braces)" and "Ana Cruz HIV" both render "Ana". Empty result: the send is refused
+   (missing_variable). `pet_name` gets the same cleaning from the asset label.
+3. `{clinic}` is the clinic's display name, approved once at onboarding. It is checked against the default
+   sensitive list when a person sets or changes it; a hit needs explicit clinic confirmation (stored with who
+   and when). It is not re-judged on every send.
+4. The treatment check then judges the whole approved template text with the variables masked, against
+   the default list and the clinic's own categories, plus the cleaned variable values against the default list
+   only (whole words). Names can no longer carry notes, so R60, R66, R67, R70, R71, G20 and G21 close by design.
+5. Freeze the default sensitive list at what is on the branch now. Over-blocking of ordinary words (R73) is
+   handled by making those stems more specific; new additions wait for the legal consult. The list is a safety
+   net; the real safeguards are the approved template and the cleaned variables.
+6. Merge `claude/charming-pascal-tycjpp` first (it is ready), then finish this branch on the new design.
+
+## 2026-10-31 -- Sync apply merged to main (scheduled run; reviewer: pass; compliance-guard: pass; 140 tests)
+- Integrated `claude/charming-pascal-tycjpp` onto main ahead of the parked branch, as the direction above says.
+- Migration numbering: main now has 001 and 003. The parked branch's 002 merges later and runs before 003 in tests (sorted load); 002 does not touch visits, so order is safe. Any future migration runner must record each applied file name, not only the highest number (R76).
+- Fixed from this round: patient IDs are kept only when they look like a code (ID characters and at least one digit), so "HIV+" or "allergic-penicillin" is dropped (R81, compliance risk 1); a mute that blocks an insert has its own counter (R79); four missing tests added (R82).
+- Deferred to the scheduled runner milestone: log counts only, never SyncOutcome.result (G23); flag a sync with a high rejection rate (G24); batch lookups (R80).
+- Deferred, by design for now: an email-only row matched to a contact whose mobile is muted still adds a visit (R77; the send gate blocks every send to a muted number); a contact matched by email does not get the row's mobile filled in (R78; filling a mobile from a sheet could attach a stranger's number, so the clinic adds it by hand).
+- Recall loader must skip inactive assets (G25); noted for Database wiring 1.
+
+- PM check (2026-10-31): "Database wiring 1" added to main's STATUS.json as in_progress (it lives on `claude/eager-turing-bwpp43`). The needsPatrick item on cleaning/linis/check-up wording is removed: Patrick answered it on 2026-10-30 (cleaning, check-up and consultation allowed, English only, linis not), logged on that branch; the full entry reaches main when the branch merges. Finding IDs R32, R33 and G9 to G11 mean different things on main and on that branch; renumber the branch's copies at merge (findings.csv stays append-only).

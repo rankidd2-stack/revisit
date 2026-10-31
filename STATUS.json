@@ -1,13 +1,12 @@
 {
   "project": "Revisit (placeholder name) -- clinic retention console",
-  "lastUpdated": "2026-10-30",
+  "lastUpdated": "2026-10-31",
   "currentPhase": 1,
   "phases": [
     {
       "id": 0,
       "name": "Plan and setup",
       "state": "done",
-      "percentComplete": 100,
       "milestones": [
         {
           "name": "Product spec, features, add-on backlog",
@@ -27,7 +26,6 @@
       "id": 1,
       "name": "Foundation",
       "state": "in_progress",
-      "percentComplete": 56,
       "milestones": [
         {
           "name": "Database schema: contacts, assets, consent ledger, mute list, campaign log",
@@ -51,19 +49,23 @@
         },
         {
           "name": "Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",
-          "state": "parked",
-          "note": "Parked on branch claude/eager-turing-bwpp43 after 3 review rounds in the 2026-10-30 live run (7 rounds in all). Open: blocker R70; should-fix R71-R73; nits R74-R75; compliance risks G20-G21 (compliance-guard round 3: pass). Next run: fix per the \"Reviewer round 6\" entry in docs/DECISIONS.md, then review and merge. claude/charming-pascal-tycjpp (sync apply, migration renumbered to 003) merges right after it."
+          "state": "in_progress",
+          "note": "Not on main yet. Lives on branch claude/eager-turing-bwpp43 (parked after review round 6: blocker R70, should-fix R71-R73, nits R74-R75, compliance risks G20-G21; those findings arrive with the branch). Being reworked this run per the 2026-10-31 \"Direction for the parked branch\" entry in docs/DECISIONS.md (derived first names, three template variables, frozen word list), which replaces the round-6 fix plan. Must also cover G25 (recall loader skips inactive assets). On merge: reconcile finding IDs R32, R33, G9, G10, G11 (used for different findings on main and on the branch) and bring over Patrick's 2026-10-30 allowlist decision and the erased-opt-out legal item. Reviewer and compliance-guard sign-off required before done."
         },
         {
-          "name": "Database wiring 2: write imports and sync runs to Postgres; muted never re-added, clinic-owned status kept",
+          "name": "Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)",
+          "state": "done"
+        },
+        {
+          "name": "Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",
           "state": "todo"
         },
         {
-          "name": "Google Sheet sync: scheduled pull into the import path; failed or stale sync pauses sends and alerts the clinic",
+          "name": "Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock",
           "state": "todo"
         },
         {
-          "name": "Philippines market pack: +63 numbers, Asia/Manila, Semaphore and word lists behind one module",
+          "name": "Philippines market pack split",
           "state": "todo"
         }
       ]
@@ -72,7 +74,6 @@
       "id": 2,
       "name": "AI console prototype (sales demo)",
       "state": "todo",
-      "percentComplete": 0,
       "milestones": [
         {
           "name": "Clickable console: daily autopilot queue",
@@ -96,7 +97,6 @@
       "id": 3,
       "name": "Sending live",
       "state": "todo",
-      "percentComplete": 0,
       "milestones": [
         {
           "name": "Send pipeline with campaign log writes",
@@ -120,7 +120,6 @@
       "id": 4,
       "name": "Paid pilot",
       "state": "todo",
-      "percentComplete": 0,
       "milestones": [
         {
           "name": "3 clinics paying P1,000 a month",
@@ -144,7 +143,6 @@
       "id": 5,
       "name": "Growth",
       "state": "todo",
-      "percentComplete": 0,
       "milestones": [
         {
           "name": "Announcement builder",
@@ -166,7 +164,7 @@
     }
   ],
   "tests": {
-    "passing": 180,
+    "passing": 140,
     "failing": 0
   },
   "needsPatrick": [
