@@ -60,3 +60,25 @@ Newest first. Locked decisions live in CLAUDE.md; this log records every decisio
 - Kept on purpose: the Tagalog/Taglish wording checks (bunot, pasta, hindi masakit, etc.). They are compliance filters for PH texts, not branding.
 - Next (Claude decides, code structure): move PH specifics (+63 numbers, Asia/Manila, Semaphore, DTI/DPA word lists) into a "Philippines market pack" during database wiring, so the core is country-neutral.
 | 2026-10-30 | Code lives in private GitHub repo rankidd2-stack/revisit (Patrick's account) | Patrick | Yes |
+
+
+## 2026-10-31 -- Direction for the parked branch (Claude, code structure; overrides the round-6 fix plan)
+Six reviewer rounds on `claude/eager-turing-bwpp43` (R47 to R75) all came from one design: judging free text
+for health words while making exceptions so names don't trip it. Each exception opened a hole. Stop patching
+the matcher; take free text out of patient texts instead.
+1. Templates may use only these variables: `{first_name}`, `{pet_name}`, `{clinic}`. Remove `{last_name}` and
+   `{full_name}` from the template language; a template using any other placeholder is refused at approval.
+2. `first_name` is derived, never typed into a text: take the contact's name, drop bracketed text and anything
+   after " - ", take the first word, keep letters (any script), apostrophes and hyphens, cap 20 characters,
+   title-case it. "Ana Cruz (braces)" and "Ana Cruz HIV" both render "Ana". Empty result: the send is refused
+   (missing_variable). `pet_name` gets the same cleaning from the asset label.
+3. `{clinic}` is the clinic's display name, approved once at onboarding. It is checked against the default
+   sensitive list when a person sets or changes it; a hit needs explicit clinic confirmation (stored with who
+   and when). It is not re-judged on every send.
+4. The treatment check then judges the whole approved template text with the variables masked, against
+   the default list and the clinic's own categories, plus the cleaned variable values against the default list
+   only (whole words). Names can no longer carry notes, so R60, R66, R67, R70, R71, G20 and G21 close by design.
+5. Freeze the default sensitive list at what is on the branch now. Over-blocking of ordinary words (R73) is
+   handled by making those stems more specific; new additions wait for the legal consult. The list is a safety
+   net; the real safeguards are the approved template and the cleaned variables.
+6. Merge `claude/charming-pascal-tycjpp` first (it is ready), then finish this branch on the new design.
