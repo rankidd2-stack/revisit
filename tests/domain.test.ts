@@ -453,8 +453,9 @@ describe("derived names and the clinic name (2026-10-31 direction)", () => {
   it("round 2: each part of a hyphenated name is judged; long stems and word forms match; look-alike letters are refused", () => {
     const hit = (raw: string) => nameIssues(cleanFirstName(raw)!, "dental").map((i) => i.code);
     for (const raw of ["Ana-HIV", "HIV-Ana", "Lola-dialysis", "Ana'hiv", "Ana-Botox", "Ana-Implant", "Ana-Std", "Ana-Aids", "Ana-Tb",
-      "Cancer-Ana", "Rct-Ana", "Ana-Buntis", "Rehab-Lola", "Pregnant Ana", "Diabetic Lolo", "Psychiatric", "Orthodontic"]) expect(hit(raw)).toContain("names_treatment");
-    for (const raw of ["Stephanie", "Cardinal", "Renalyn", "Ana-Marie", "O'Neil", "Crispin", "Brace", "Jo-Ann"]) expect(hit(raw)).toEqual(raw === "Brace" ? ["names_treatment"] : []);
+      "Cancer-Ana", "Rct-Ana", "Ana-Buntis", "Rehab-Lola", "Pregnant Ana", "Diabetic Lolo", "Psychiatric", "Orthodontic",
+      "Ana-Chemotherapy", "Oncologist", "Psychology", "Psycho-Ana", "Mental-Ana", "Mammogram", "Gynecologist", "Rehabilitation", "Orthodontist"]) expect(hit(raw)).toContain("names_treatment");
+    for (const raw of ["Stephanie", "Cardinal", "Renalyn", "Ana-Marie", "O'Neil", "Crispin", "Brace", "Jo-Ann", "Crownie", "Bracelyn", "Kristine", "Dennis", "Ligaya", "Consuelo", "Whitney", "Addison", "Herminio"]) expect(hit(raw)).toEqual(raw === "Brace" ? ["names_treatment"] : []);
     expect(cleanFirstName("\u041dIV Ana")).toBeNull();
     expect(cleanFirstName("\u0410\u043d\u043d\u0430")).toBe("\u0410\u043d\u043d\u0430");
   });

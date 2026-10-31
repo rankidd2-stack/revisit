@@ -319,13 +319,15 @@ export function cleanFirstName(raw: string | null | undefined): string | null {
 // Word forms of default stems that a typed first word could be ("Pregnant Ana", "Diabetic Lolo").
 // Used for names only; texts are judged on stems already.
 const NAME_WORD_FORMS = ["pregnant", "diabetic", "psychiatric", "psychiatry", "psychotic", "psychologist", "autistic", "autism",
-  "abortion", "orthodontic", "cavity", "cavities", "biopsy", "oncology", "depressed", "rehab", "botox"];
+  "abortion", "orthodontic", "cavity", "cavities", "biopsy", "oncology", "depressed", "rehab", "botox", "psycho", "mental"];
+// Stems that start ordinary first names (Renalyn, Crownie, Bracelyn, Pastora, Bunotan) match names as whole words only.
+const NAME_WHOLE_ONLY = new Set(["renal", "crown", "brace", "pasta", "bunot"]);
 
 /**
  * A cleaned name judged against the default sensitive list. Each part between hyphens or apostrophes
- * is its own word ("Lola-Dialysis" is judged as "lola dialysis"). Stems of 6 letters or more match
- * from a word start ("Diabetic"); shorter stems only as whole words, so "Renalyn" and "Stephanie"
- * pass; plus common word forms of the short stems. Clinic categories are not used: names are not
+ * is its own word ("Lola-Dialysis" is judged as "lola dialysis"). Stems of 4 letters or more match
+ * from a word start ("Diabetic", "Oncologist"), except a few that start real names (NAME_WHOLE_ONLY,
+ * so "Renalyn" passes); 3-letter stems only as whole words, so "Stephanie" passes. Plus common word forms. Clinic categories are not used: names are not
  * service wording.
  */
 export function nameIssues(name: string, vertical: ContentCheckOptions["vertical"]): ContentIssue[] {
@@ -336,7 +338,8 @@ export function nameIssues(name: string, vertical: ContentCheckOptions["vertical
   for (const w of words) {
     const t = forMatching(w, "solid");
     if (!t) continue;
-    const re = t.length >= 6 && !DEFAULT_WHOLE_WORDS.includes(w) ? START + escapeRe(t) : START + escapeRe(t) + "(?:e?s)?" + END;
+    const fromStart = t.length >= 4 && !DEFAULT_WHOLE_WORDS.includes(w) && !NAME_WHOLE_ONLY.has(t);
+    const re = fromStart ? START + escapeRe(t) : START + escapeRe(t) + "(?:e?s)?" + END;
     if (new RegExp(re, "u").test(text)) hits.add(w);
   }
   return [...hits].map((w) => ({ code: "names_treatment" as const, message: `A name in this text reads "${w}"; default texts must not name a treatment (lock-screen privacy).` }));

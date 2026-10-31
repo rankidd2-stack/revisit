@@ -282,7 +282,7 @@ describe("send pipeline", () => {
     const dental = { ...clinic, vertical: "dental" as const, serviceCategories: [], displayName: "Smile Implant Center", displayNameConfirmedBy: "owner@smile" };
     expect(prep({ clinic: dental, approval: tpl, subject: "self" }).ok).toBe(true);
     for (const subject of ["dependent", "package", "other"] as const) {
-      expect(prep({ clinic: dental, approval: tpl, subject })).toMatchObject({ ok: false, reason: "clinic_name_unconfirmed" });
+      expect(prep({ clinic: dental, approval: tpl, subject })).toMatchObject({ ok: false, reason: "clinic_name_about_dependent" });
     }
     const long = "Bright Smile Dental and Family Center of Greater Makati City";
     const r = prep({ clinic: { ...dental, displayName: long }, approval: tpl });

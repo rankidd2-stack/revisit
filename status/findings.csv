@@ -137,3 +137,8 @@ G30,compliance-guard,risk,SMS rules,Word forms of stems in names (Pregnant); sam
 G31,compliance-guard,risk,Privacy,"A confirmed sensitive clinic name went into texts about dependents; now refused there, and whether it may go out at all is on the legal-consult list",fixed
 G32,compliance-guard,risk,Privacy,"Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login",deferred
 G33,compliance-guard,risk,Privacy,"Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send",open
+R94,reviewer,should-fix,SMS rules,"Longer forms of 4-5 letter stems passed in names (Oncologist, Chemotherapy, Psychology); 4+ letter stems now match names from a word start, except renal, crown, brace, pasta, bunot",fixed
+R95,reviewer,should-fix,Send pipeline,A confirmed clinic name refused for a dependent text said unconfirmed; now its own reason clinic_name_about_dependent,fixed
+R96,reviewer,nit,SMS rules,"Words not on the frozen default list pass in names (Lasik, Thyroid, Stroke, Asthma); known limit of the safety net, for the legal consult",deferred
+G34,compliance-guard,risk,SMS rules,"Psycho and Mental in names passed; added to the names-only word forms",fixed
+G35,compliance-guard,nit,Privacy,Confirmation does not store which name was confirmed; rename trigger is the safeguard (part of G32),deferred

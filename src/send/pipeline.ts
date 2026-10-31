@@ -138,7 +138,7 @@ export interface ClinicSendProfile {
 
 export type PrepareResult =
   | { ok: true; sms: PreparedSms }
-  | { ok: false; reason: "not_approved" | "sender_not_approved" | "no_reply_path" | "bad_stop_link" | "already_sent" | "bad_mobile" | "missing_variable" | "bad_template" | "clinic_name_unconfirmed" }
+  | { ok: false; reason: "not_approved" | "sender_not_approved" | "no_reply_path" | "bad_stop_link" | "already_sent" | "bad_mobile" | "missing_variable" | "bad_template" | "clinic_name_unconfirmed" | "clinic_name_about_dependent" }
   | { ok: false; reason: BlockReason | "quiet_hours"; deferUntil?: Date }
   | { ok: false; reason: "content"; issues: ContentIssue[] };
 
@@ -188,9 +188,9 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
   const aboutSomeoneElse = !ABOUT_CONTACT_OR_PET.has(a.subject);
   // A clinic name that names a treatment needs a named confirmation, and never goes into a text about
   // another person, confirmed or not, until the legal consult (DPA s.13).
-  if (approval.template.includes("{clinic}") && clinicNameIssues(clinic.displayName!, clinic.vertical).length
-      && (aboutSomeoneElse || !nonEmpty(clinic.displayNameConfirmedBy))) {
-    return { ok: false, reason: "clinic_name_unconfirmed" };
+  if (approval.template.includes("{clinic}") && clinicNameIssues(clinic.displayName!, clinic.vertical).length) {
+    if (aboutSomeoneElse) return { ok: false, reason: "clinic_name_about_dependent" };
+    if (!nonEmpty(clinic.displayNameConfirmedBy)) return { ok: false, reason: "clinic_name_unconfirmed" };
   }
   const text = normalizeForSms(rendered).trim();
   const human = clinic.vertical !== "vet";
