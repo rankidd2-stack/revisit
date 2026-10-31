@@ -24,10 +24,12 @@ scheduled run, `live-<UTC yyyymmddThhmmZ>` for a session Patrick started.
 ## 2. Integrate before building (never skip)
 - List remote branches not merged into main: `git branch -r --no-merged origin/main`.
 - Every `claude/` branch in that list, except `claude/autopilot-lock`, is unfinished work from an earlier run. Finish it before starting
-  anything new, oldest first:
+  anything new. Order: branches with no open blocker first (they are ready; don't let a parked branch hold
+  them up), then parked branches, oldest first.
   1. Merge it onto current main and resolve conflicts. Generated files (status/*.csv, docs/STATUS.md) are
      never hand-merged: take either side, then run `npm run status`. Two migrations with the same number:
-     renumber the later one and keep both.
+     renumber the later one and keep both. docs/DECISIONS.md and status/findings.csv are append-only: keep
+     both sides' entries.
   2. Fix every open blocker recorded for it in status/findings.csv.
   3. Review and merge it per steps 5 to 7.
 - A branch parked only for a Patrick decision (a matching `needsPatrick` entry) is skipped, not merged.
@@ -46,6 +48,9 @@ scheduled run, `live-<UTC yyyymmddThhmmZ>` for a session Patrick started.
 - Migrations: next free number in db/migrations; never edit a migration already on main.
 
 ## 5. Independent checks
+- Before a third round on the same problem, step back: if each fix opens a new finding in the same area,
+  the approach is wrong, not the details. Change the design so the class of bug can't happen (accept less
+  input, judge less text), log why in docs/DECISIONS.md, and re-review that.
 - Run the `reviewer` agent on the diff, then the `compliance-guard` agent.
 - Fix every blocker or fail and re-run that agent. Up to 3 rounds per branch per run.
 - Still failing after 3 rounds: push the branch, mark the milestone `parked` with the open finding IDs, and
