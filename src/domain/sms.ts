@@ -130,12 +130,6 @@ export interface ContentCheckOptions {
   sensitiveTerms?: string[];   // clinic-specific words; the send pipeline adds the clinic's service categories for human clinics
   /** Routine visit words may be named. Off unless the caller turns it on; never on for a text about someone else. */
   allowVisitWords?: boolean;
-  /**
-   * The text treatment words are matched in, when it differs from `body`: the send pipeline passes the
-   * approved template with the patient's, pet's and clinic's names masked, so a name ("Stephanie",
-   * "Psych Wellness Center") never blocks a text and only the approved wording is judged.
-   */
-  treatmentText?: string;
 }
 
 // Human treatments are health data under the DPA, so they stay off lock screens by default.
@@ -153,14 +147,16 @@ const DEFAULT_SENSITIVE: Record<"human" | "vet", string[]> = {
     "hiv", "std", "sti", "pregnan", "prenatal", "antenatal", "postnatal", "pap smear", "ob-gyn", "obgyn", "gyne", "obstet",
     "ivf", "fertility", "contracept", "family planning", "psych", "mental health", "counsel", "rehab", "onco", "cancer", "chemo",
     "tumor", "tumour", "dialysis", "hepatitis", "tuberculosis", "diabet", "ultrasound", "vasectom", "ligation",
-    "infertil", "syphil", "gonorr", "herpes", "chlamyd", "abort", "miscarr", "menopaus", "buntis", "tuli", "depress", "anxiety",
-    "autis", "therap", "hypertens", "kidney", "renal", "cardi", "urolog", "biops", "mammo", "breast", "hormone", "transgender",
+    "infertil", "syphil", "gonorr", "herpes", "chlamyd", "abort", "miscarr", "menopaus", "buntis", "depress", "anxiety",
+    "autis", "physiotherap", "hypertens", "kidney", "renal", "cardiac", "cardiolog", "cardiovasc", "urolog", "biops", "mammo", "hormone", "transgender",
     "drug test", "circumcis", "addict"],
   vet: ["euthan"],
 };
-const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso"];
-// Default words that only ever match whole (plurals included), because as a word start they hit ordinary text ("hearing aids").
-const DEFAULT_WHOLE_WORDS = ["aids", "tb", "ob", "hpv", "pcos", "adhd"];
+const FILIPINO_ROOTS = ["pasta", "bunot", "pustiso", "patuli"];
+// Default words that only ever match whole (plurals included), because as a word start they would hit
+// ordinary words: "tuli" (Tuliahan), "breast" (breastfeeding), "therapy" (therapist), "ob" (obey).
+// Whole-word matching does not spare "hearing aids": "aids" still blocks there, accepted as fail-closed (G19).
+const DEFAULT_WHOLE_WORDS = ["aids", "tb", "ob", "hpv", "pcos", "adhd", "tuli", "breast", "therapy", "therapies"];
 
 // Routine visit words allowed in default texts for every human clinic (Patrick, 2026-10-30): they
 // say nothing a clinic's sender name doesn't already say. English words only. A clinic category made
@@ -288,8 +284,7 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
   }
   if (!opts.nameTreatmentsAllowed) {
     const human = opts.vertical !== "vet";
-    const judged = opts.treatmentText ?? body;
-    const texts = [forMatching(judged, "spaced"), forMatching(judged, "joined")];
+    const texts = [forMatching(body, "spaced"), forMatching(body, "joined")];
     const seen = new Set<string>();
     for (const m of treatmentMatchers(human, opts.sensitiveTerms ?? [], opts.allowVisitWords === true)) {
       if (!texts.some((t) => m.re.test(t))) continue;
@@ -299,4 +294,47 @@ export function checkContent(body: string, opts: ContentCheckOptions): ContentIs
     }
   }
   return issues;
+}
+
+/**
+ * The only name that goes into a text: the first word of what the clinic typed, with notes removed.
+ * Bracketed text (closed or not) and anything after " - " is dropped, then the first word keeps its
+ * leading run of letters (any script), apostrophes and hyphens, capped at 20 characters and title-cased.
+ * "Ana Cruz (braces)" and "Ana Cruz HIV" both give "Ana". Null when nothing is left.
+ */
+export function cleanFirstName(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const noNotes = raw.normalize("NFC").replace(/[([{][^)\]}]*(?:[)\]}]|$)/gu, " ").split(/\s[-\u2013\u2014]\s/u)[0]!;
+  const word = noNotes.trim().split(/\s+/u)[0] ?? "";
+  // The leading run of name characters only: "Ana+HIV" gives "Ana", never "Anahiv".
+  const run = word.replace(/^[^\p{L}]+/u, "").match(/^[\p{L}\p{M}'’-]+/u)?.[0] ?? "";
+  const kept = [...run].slice(0, 20).join("").replace(/['’-]+$/u, "");
+  if (!/\p{L}/u.test(kept)) return null;
+  return kept.toLowerCase().replace(/(^|[-'’])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase());
+}
+
+/**
+ * A cleaned name (one word) judged against the default sensitive list as a whole word, so "Hiv" or
+ * "Botox" as a typed first name is caught but "Stephanie" never trips a stem. Clinic categories are
+ * not used here: names are not service wording.
+ */
+export function nameIssues(name: string, vertical: ContentCheckOptions["vertical"]): ContentIssue[] {
+  const human = vertical !== "vet";
+  const text = forMatching(name, "joined");
+  const words = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(human ? [...FILIPINO_ROOTS, ...DEFAULT_WHOLE_WORDS] : [])];
+  const hits = new Set<string>();
+  for (const w of words) {
+    const t = forMatching(w, "solid");
+    if (t && new RegExp(START + escapeRe(t) + "(?:e?s)?" + END, "u").test(text)) hits.add(w);
+  }
+  return [...hits].map((w) => ({ code: "names_treatment" as const, message: `A name in this text reads "${w}"; default texts must not name a treatment (lock-screen privacy).` }));
+}
+
+/**
+ * The clinic's display name ({clinic}) is checked once, when a person sets or changes it, against the
+ * default sensitive list. A hit ("Smile Implant Center") needs the clinic's explicit confirmation,
+ * stored with who and when; it is not re-judged on every send.
+ */
+export function clinicNameIssues(name: string, vertical: ContentCheckOptions["vertical"]): ContentIssue[] {
+  return checkContent(name, { kind: "reminder", vertical, nameTreatmentsAllowed: false }).filter((i) => i.code === "names_treatment");
 }

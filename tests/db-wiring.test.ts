@@ -57,6 +57,7 @@ describe("loading a clinic", () => {
     const c = await clinicCtx(clinicA);
     expect(c.profile).toEqual({
       vertical: "vet", senderName: "PAWCARE", senderNameApproved: true, nameTreatmentsAllowed: false,
+      displayName: "Paw Care", displayNameConfirmedBy: null,
       replyPhone: "0917 555 0000", replyEmail: null, messengerUrl: null, serviceCategories: ["Deworming", "Rabies vaccine"],
     });
     expect(c.policy).toEqual({ marketingCapPer30d: 3, quietStartHour: 20, quietEndHour: 8, syncHealthy: true });
@@ -261,7 +262,7 @@ describe("database rows drive the send pipeline", () => {
     const c = await contactOf(clinicA, contactId);
     return prepareSms({
       clinic: clinic.profile, contact: c.contact, policy: clinic.policy, now, approval, event, subject: "pet",
-      sentEventKeys: c.sentEventKeys, vars: { first_name: "Ana", pet_name: "Bantay" },
+      sentEventKeys: c.sentEventKeys, names: { contact: "Ana Cruz", asset: "Bantay" },
       stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
     });
   };
@@ -323,5 +324,25 @@ describe("gate inputs must be real values (reviewer pass 4)", () => {
     await r("consent_optout_has_snapshot", `insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by) values ($1, $2, 'service', false, 'staff', 'v1', 's')`, [clinicA, ana]);
     await r("contacts_email_trimmed", `insert into contacts (clinic_id, full_name, email) values ($1, 'Pat', ' pat@example.com')`, [clinicA]);
     await r("mutes_value_trimmed", `insert into mutes (clinic_id, kind, value, reason) values ($1, 'email', 'pat@example.com ', 'staff')`, [clinicA]);
+  });
+});
+
+describe("migration 004: template variables and the clinic name confirmation", () => {
+  it("an approved template may use only the three variables; a draft may hold anything", async () => {
+    const svc = await id(`insert into service_categories (clinic_id, name) values ($1, 'Checkup 004') returning id`, [clinicA]);
+    await expect(db.query(`insert into recall_rules (clinic_id, service_category_id, interval_days, template, active, approved_by) values ($1, $2, 180, 'Hi {last_name}', true, 'admin')`, [clinicA, svc]))
+      .rejects.toThrow(/recall_template_vars/);
+    await expect(db.query(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by) values ($1, 'N', 'At {clinic_name}', 'clinic_news', 'live', 'admin')`, [clinicA]))
+      .rejects.toThrow(/campaign_body_vars/);
+    await db.query(`insert into campaigns (clinic_id, name, body, announcement_type, status) values ($1, 'Draft', 'Hi {full_name}', 'clinic_news', 'draft')`, [clinicA]);
+    await db.query(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by) values ($1, 'Ok', 'Hi {first_name}, {clinic} is open Saturdays', 'clinic_news', 'live', 'admin')`, [clinicA]);
+  });
+  it("a confirmation needs who and when, and renaming the clinic clears it", async () => {
+    const c = await id(`insert into clinics (name, vertical) values ('Smile Implant Center', 'dental') returning id`);
+    await expect(db.query(`update clinics set display_name_confirmed_by = 'owner' where id = $1`, [c])).rejects.toThrow(/display_name_confirmation_pair/);
+    await db.query(`update clinics set display_name_confirmed_by = 'owner', display_name_confirmed_at = now() where id = $1`, [c]);
+    expect((await clinicCtx(c)).profile).toMatchObject({ displayName: "Smile Implant Center", displayNameConfirmedBy: "owner" });
+    await db.query(`update clinics set name = 'Smile HIV Center' where id = $1`, [c]);
+    expect(await one(`select display_name_confirmed_by, display_name_confirmed_at from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null, display_name_confirmed_at: null });
   });
 });

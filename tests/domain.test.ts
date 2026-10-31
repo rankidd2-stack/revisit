@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nextRecallStep, type RecallRule } from "../src/domain/recall.js";
 import { checkEligibility, DEFAULT_POLICY, type ContactState } from "../src/domain/eligibility.js";
-import { buildFooter, checkContent, isAllowedVisitTerm, measureSms, normalizeForSms, smsCostCentavos } from "../src/domain/sms.js";
+import { buildFooter, checkContent, cleanFirstName, clinicNameIssues, isAllowedVisitTerm, nameIssues, measureSms, normalizeForSms, smsCostCentavos } from "../src/domain/sms.js";
 import { manilaDate, manilaHour, manilaInstant } from "../src/domain/time.js";
 import { latestConsent, latestVisit, type ConsentRecord } from "../src/domain/contact-state.js";
 
@@ -391,8 +391,8 @@ describe("reviewer round 4 and compliance pass 4", () => {
     expect(codes("Your TB check-up is due", ["Doctor TB check-up"])).toContain("names_treatment");
     expect(codes("Your derma consultation is due", ["Dra. Derma consultation"])).toContain("names_treatment");
     expect(codes("Dra. Ana says your check-up is due", ["Consultation with Dra. Ana"])).toContain("names_treatment");
-    // Names the pipeline fills in are masked before this check (see the send pipeline tests).
-    expect(checkContent("Hi Ana, your check-up is due", { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false, sensitiveTerms: ["Dr Ana consultation"], allowVisitWords: true, treatmentText: "Hi Name, your check-up is due" })).toEqual([]);
+    // checkContent judges exactly the text it is given; the pipeline passes the template with names masked.
+    expect(checkContent("Hi Ana, your check-up is due", { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false, sensitiveTerms: ["Dr Ana consultation"], allowVisitWords: true }).map((i) => i.code)).toContain("names_treatment");
   });
   it("R65: short forms of the routine words count as routine words", () => {
     for (const t of ["Consult", "Check", "Clean", "Dental consult"]) expect(isAllowedVisitTerm(t)).toBe(true);
@@ -431,5 +431,34 @@ describe("reviewer round 4 and compliance pass 4", () => {
     }
     // Ordinary words that start like a short stem still pass.
     expect(codes("We still have a slot; your check-up is due", ["Check-up"])).toEqual([]);
+  });
+});
+
+describe("derived names and the clinic name (2026-10-31 direction)", () => {
+  it("cleanFirstName keeps only the first word of a name, without notes", () => {
+    const cases: [string | null, string | null][] = [
+      ["Ana Cruz (braces)", "Ana"], ["Ana Cruz HIV", "Ana"], ["Ana (braces", "Ana"], ["(HIV) Ana Cruz", "Ana"],
+      ["[note] ben lim", "Ben"], ["Juan - diabetic", "Juan"], ["Juan \u2013 rehab", "Juan"], ["ana-marie de la cruz", "Ana-Marie"],
+      ["O'NEIL", "O'Neil"], ["Ma. Luisa", "Ma"], ["Jos\u00e9 Rizal", "Jos\u00e9"], ["  \u674e\u5c0f\u9f99 ", "\u674e\u5c0f\u9f99"],
+      ["Ana50%off", "Ana"], ["Ana+HIV", "Ana"], ["#Ben", "Ben"], ["Bartholomewbartholomew Cruz", "Bartholomewbartholom"], ["-Ana-", "Ana"],
+      ["123", null], ["", null], ["(note only)", null], [null, null],
+    ];
+    for (const [raw, want] of cases) expect(cleanFirstName(raw)).toBe(want);
+  });
+  it("a cleaned name that is itself a default sensitive word is caught, whole words only", () => {
+    for (const n of ["Hiv", "Botox", "Tuli", "Implants"]) expect(nameIssues(n, "dental").map((i) => i.code)).toContain("names_treatment");
+    for (const n of ["Stephanie", "Cardinal", "Ana", "Crownie"]) expect(nameIssues(n, "dental")).toEqual([]);
+    expect(nameIssues("Hiv", "vet")).toEqual([]);
+  });
+  it("the clinic name is judged against the default list when it is set", () => {
+    for (const n of ["Smile Implant Center", "Manila HIV and Rehab Center", "Psych Wellness Center"]) expect(clinicNameIssues(n, "other").length).toBeGreaterThan(0);
+    for (const n of ["Paw Care", "Cardinal Dental", "Tuliahan Family Clinic", "Smile"]) expect(clinicNameIssues(n, "dental")).toEqual([]);
+  });
+  it("R73: stems made specific so place and ordinary words pass; the care words still block", () => {
+    const codes = (b: string) => checkContent(b, { kind: "recall", vertical: "dental", nameTreatmentsAllowed: false }).map((i) => i.code);
+    for (const b of ["Our new branch near Cardinal Santos is open", "Free cardio dance on Saturday", "Our Tuliahan branch is open",
+      "Breastfeeding mothers welcome", "Meet our new therapist"]) expect(codes(b)).toEqual([]);
+    for (const b of ["Your cardiac check is due", "Your cardiology visit", "Your tuli schedule", "Magpatuli na", "Your breast exam",
+      "Your therapy session", "Your physiotherapy is due"]) expect(codes(b)).toContain("names_treatment");
   });
 });

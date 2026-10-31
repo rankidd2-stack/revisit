@@ -2,7 +2,7 @@
 
 Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit by hand.
 
-**Tests:** 140 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 37
+**Tests:** 215 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 26
 
 ## Needs Patrick
 
@@ -67,18 +67,7 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 | R39 | reviewer | nit | Database wiring tests share one changing database and depend on order | deferred |
 | G26 | compliance-guard | risk | Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period | open |
 | G28 | compliance-guard | risk | Imports must never write consent rows, or a re-import could undo a stop | open |
-| R60 | reviewer | nit | A doctor's name in a category blocked patients with the same first name; names are now masked before the check (the Dr/Dra skip was dropped, see R64) -- masking reopened: see R70 | open |
 | R61 | reviewer | nit | A plain space inside a clinic word ("pre natal") is not caught; accepted limit, pinned by a test | deferred |
 | G16 | compliance-guard | note | Subject is supplied by the caller; derive it from assets.kind of the event's asset in the loader (Wiring 2) | open |
-| R66 | reviewer | should-fix | A clinic name containing a stem ("Psych Wellness Center") blocked every text; names are masked before the check -- masking reopened: see R70 | open |
-| R67 | reviewer | nit | 4+ letter category words blocked patient names that start with them ("Step" vs Stephanie); names are masked -- masking reopened: see R70 | open |
 | G19 | compliance-guard | note | "aids" now whole-word only; "hearing aids" still blocks (no word rule can tell them apart), accepted as fail-closed | deferred |
-| R70 | reviewer | blocker | Masking name placeholders skips checking them; names typed with notes ("Ana Cruz (braces)", "Ana Cruz HIV") reach the lock screen. Introduced in round 5 fix a52a822 | open |
-| R71 | reviewer | should-fix | {clinic_name} "Smile Implant Center" is masked, so "implant" goes out | open |
-| R72 | reviewer | should-fix | checkContent treatmentText ?? body: an empty or other treatmentText turns the treatment check off for a direct caller | open |
-| R73 | reviewer | should-fix | New stems over-block place and ordinary words: cardi (Cardinal Santos, cardio dance), tuli (Tuliahan), breast (breastfeeding), therap (therapist) | open |
-| R74 | reviewer | nit | Comment says whole-word spares hearing aids; it does not | open |
-| R75 | reviewer | nit | No tests for a name holding treatment text, a placeholder outside NAME_VARS, or an empty treatmentText | open |
-| G20 | compliance-guard | risk | {clinic} filled by the caller is masked; "Manila HIV and Rehab Center" would go out. Fill {clinic} from the approved clinic record or check it against the default list | open |
-| G21 | compliance-guard | risk | Masked pet or dependent labels ("Lola (dialysis)") are never checked | open |
 | G22 | compliance-guard | note | "check" and "clean" are wider than Patrick's three words; logged as Claude's reading, small impact | deferred |

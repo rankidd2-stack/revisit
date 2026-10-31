@@ -1,5 +1,5 @@
 import { checkEligibility, type ClinicPolicy, type ContactState, type SendKind, type BlockReason } from "../domain/eligibility.js";
-import { buildFooter, checkContent, measureSms, normalizeForSms, type ContentIssue } from "../domain/sms.js";
+import { buildFooter, checkContent, cleanFirstName, clinicNameIssues, measureSms, nameIssues, normalizeForSms, type ContentIssue } from "../domain/sms.js";
 
 /**
  * The only way to produce a text that can be sent. A PreparedSms has passed the eligibility gate,
@@ -95,11 +95,26 @@ export function eventKey(e: SendEvent): string {
   }
 }
 
-/** Fills {first_name}, {pet_name}, {clinic} and similar. Values are single-line and short, and an
- *  unknown or missing placeholder refuses the send rather than going out with a gap. */
-export function renderTemplate(template: string, vars: Record<string, string>): string | null {
+/**
+ * The template language: these three variables and nothing else. No free text a person typed into a
+ * record (last names, notes) can reach a text; names are derived (cleanFirstName) and the clinic name
+ * comes from the clinic record.
+ */
+export const TEMPLATE_VARS = ["first_name", "pet_name", "clinic"] as const;
+export type TemplateVar = (typeof TEMPLATE_VARS)[number];
+
+/** Problems that refuse a template at approval: any brace that is not one of the three variables. */
+export function templateProblems(template: string): string[] {
+  const rest = template.replace(/\{(first_name|pet_name|clinic)\}/g, "");
+  const bad = rest.match(/\{[^{}]*\}?|\}/g) ?? [];
+  return bad.map((b) => `${b} is not a template variable; use {first_name}, {pet_name} or {clinic}.`);
+}
+
+/** Fills the template variables. A missing value refuses the send rather than going out with a gap. */
+export function renderTemplate(template: string, vars: Partial<Record<TemplateVar, string>>): string | null {
+  if (templateProblems(template).length) return null;
   let missing = false;
-  const out = template.replace(/\{([a-z_]+)\}/g, (_, name: string) => {
+  const out = template.replace(/\{(first_name|pet_name|clinic)\}/g, (_, name: TemplateVar) => {
     const v = vars[name];
     if (typeof v !== "string" || !v.trim()) { missing = true; return ""; }
     return v.replace(/[\r\n\t]+/g, " ").trim().slice(0, 40);
@@ -112,6 +127,8 @@ export interface ClinicSendProfile {
   senderName: string | null;
   senderNameApproved: boolean;
   nameTreatmentsAllowed: boolean;
+  displayName: string | null;               // clinics.name, filled into {clinic}
+  displayNameConfirmedBy: string | null;    // set when a person confirmed a display name that hit the sensitive list
   replyPhone?: string | null;
   replyEmail?: string | null;
   messengerUrl?: string | null;
@@ -120,7 +137,7 @@ export interface ClinicSendProfile {
 
 export type PrepareResult =
   | { ok: true; sms: PreparedSms }
-  | { ok: false; reason: "not_approved" | "sender_not_approved" | "no_reply_path" | "bad_stop_link" | "already_sent" | "bad_mobile" | "missing_variable" }
+  | { ok: false; reason: "not_approved" | "sender_not_approved" | "no_reply_path" | "bad_stop_link" | "already_sent" | "bad_mobile" | "missing_variable" | "bad_template" | "clinic_name_unconfirmed" }
   | { ok: false; reason: BlockReason | "quiet_hours"; deferUntil?: Date }
   | { ok: false; reason: "content"; issues: ContentIssue[] };
 
@@ -133,18 +150,13 @@ export interface PrepareArgs {
   event: SendEvent;
   subject: Subject;               // who the text is about; required, so no caller gets the relaxed rules by leaving it out
   sentEventKeys: Set<string>;     // event keys already in the sends table for this contact
-  vars: Record<string, string>;   // values for the approved template's placeholders
+  /** Raw names from the records; the pipeline cleans them. `asset` is the pet's or dependent's label. */
+  names: { contact: string | null; asset?: string | null };
   stopUrl: string;                // per-contact one-tap opt-out link
   stopLinkHost: string;           // our own domain
 }
 
 const MOBILE_RE = /^639\d{9}$/;
-
-// Placeholders that hold a name, never wording the clinic approved. Masked for the treatment check.
-const NAME_VARS = ["first_name", "last_name", "full_name", "pet_name", "clinic", "clinic_name"];
-function maskNames(vars: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(NAME_VARS.filter((k) => typeof vars[k] === "string").map((k) => [k, "Name"]));
-}
 
 export function prepareSms(a: PrepareArgs): PrepareResult {
   const { clinic } = a;
@@ -163,23 +175,41 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
   if (!a.contact.mobile) return { ok: false, reason: "no_mobile" };
   if (!MOBILE_RE.test(a.contact.mobile)) return { ok: false, reason: "bad_mobile" };
 
-  const rendered = renderTemplate(approval.template, a.vars);
+  if (templateProblems(approval.template).length) return { ok: false, reason: "bad_template" };
+  const vars: Partial<Record<TemplateVar, string>> = {};
+  const first = cleanFirstName(a.names?.contact);
+  const pet = cleanFirstName(a.names?.asset);
+  if (first) vars.first_name = first;
+  if (pet) vars.pet_name = pet;
+  if (nonEmpty(clinic.displayName)) vars.clinic = clinic.displayName;
+  const rendered = renderTemplate(approval.template, vars);
   if (rendered === null) return { ok: false, reason: "missing_variable" };
+  if (approval.template.includes("{clinic}") && clinicNameIssues(clinic.displayName!, clinic.vertical).length && !nonEmpty(clinic.displayNameConfirmedBy)) {
+    return { ok: false, reason: "clinic_name_unconfirmed" };
+  }
   const text = normalizeForSms(rendered).trim();
-  // Treatment words are judged on the approved wording with names masked (patient, pet, clinic).
-  const masked = renderTemplate(approval.template, { ...a.vars, ...maskNames(a.vars) });
-  const treatmentText = normalizeForSms(masked ?? rendered).trim();
   const human = clinic.vertical !== "vet";
   const aboutSomeoneElse = !ABOUT_CONTACT_OR_PET.has(a.subject);
-  const issues = checkContent(text, {
-    kind,
-    vertical: clinic.vertical,
-    nameTreatmentsAllowed: clinic.nameTreatmentsAllowed && !aboutSomeoneElse,
-    // The routine-word allowlist is off for texts about another person until the legal check (DPA s.13).
-    allowVisitWords: !aboutSomeoneElse,
-    sensitiveTerms: human ? clinic.serviceCategories : [],
-    treatmentText,
-  });
+  const strict = !(clinic.nameTreatmentsAllowed && !aboutSomeoneElse);
+  // Every check except treatment words runs on the text as sent.
+  const issues = checkContent(text, { kind, vertical: clinic.vertical, nameTreatmentsAllowed: true });
+  if (strict) {
+    // Treatment words: the approved wording with the variables masked, against the default list and
+    // the clinic's own categories; plus each cleaned name against the default list, whole words.
+    // The clinic name was judged when it was set (clinicNameIssues), so it is not judged here.
+    const masked = normalizeForSms(approval.template.replace(/\{(first_name|pet_name|clinic)\}/g, "Name")).trim();
+    issues.push(...checkContent(masked, {
+      kind,
+      vertical: clinic.vertical,
+      nameTreatmentsAllowed: false,
+      // The routine-word allowlist is off for texts about another person until the legal check (DPA s.13).
+      allowVisitWords: !aboutSomeoneElse,
+      sensitiveTerms: human ? clinic.serviceCategories : [],
+    }).filter((i) => i.code === "names_treatment"));
+    for (const [n, tag] of [[first, "{first_name}"], [pet, "{pet_name}"]] as const) {
+      if (n && approval.template.includes(tag)) issues.push(...nameIssues(n, clinic.vertical));
+    }
+  }
   if (issues.length) return { ok: false, reason: "content", issues };
 
   let footer: string;

@@ -3,7 +3,7 @@ import { normalizePhMobile } from "../src/import/phone.js";
 import { guessMapping, importCsv, normalizeDate, parseCsv, parseCsvRows } from "../src/import/csv.js";
 import { syncHealth } from "../src/sync/health.js";
 import { batch, SemaphoreClient } from "../src/integrations/semaphore.js";
-import { eventKey, prepareSms, type PreparedSms } from "../src/send/pipeline.js";
+import { eventKey, prepareSms, templateProblems, type PreparedSms } from "../src/send/pipeline.js";
 import { DEFAULT_POLICY } from "../src/domain/eligibility.js";
 
 const bounds = { min: "2000-01-01", max: "2026-10-30" };
@@ -125,7 +125,7 @@ describe("sync health", () => {
 
 const clinic = {
   vertical: "vet" as const, senderName: "PAWCARE", senderNameApproved: true, nameTreatmentsAllowed: false,
-  replyPhone: "0917 555 0000", serviceCategories: ["Rabies vaccine"],
+  replyPhone: "0917 555 0000", serviceCategories: ["Rabies vaccine"], displayName: "Paw Care", displayNameConfirmedBy: null,
 };
 const contact = {
   status: "active" as const, muted: false, hasMobile: true, mobile: "639171234567",
@@ -142,7 +142,7 @@ const prep = (over: Partial<Parameters<typeof prepareSms>[0]> = {}) =>
     clinic, contact, policy: { ...DEFAULT_POLICY, syncHealthy: true }, now: tenAm,
     approval: auto("recall-rule:r1"), subject: "self",
     event: recallEvent, sentEventKeys: new Set(),
-    vars: { first_name: "Ana", pet_name: "Bantay" }, stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
+    names: { contact: "Ana Cruz", asset: "Bantay" }, stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
     ...over,
   });
 
@@ -176,11 +176,11 @@ describe("send pipeline", () => {
     expect(prep({ contact: { ...contact, mobile: "639171234567,639181234567" } })).toMatchObject({ ok: false, reason: "bad_mobile" });
   });
   it("refuses to send with a missing placeholder value", () => {
-    expect(prep({ vars: { first_name: "Ana" } })).toMatchObject({ ok: false, reason: "missing_variable" });
+    expect(prep({ names: { contact: "Ana Cruz", asset: null } })).toMatchObject({ ok: false, reason: "missing_variable" });
   });
-  it("variables can't smuggle in promo wording or extra lines", () => {
-    const r = prep({ event: campaignEvent, approval: camp("Hi {first_name}, see you soon"), vars: { first_name: "Ana 50% off\nSALE" } });
-    expect(r).toMatchObject({ ok: false, reason: "content" });
+  it("names can't smuggle in promo wording or extra lines: only the cleaned first word goes out", () => {
+    const r = prep({ event: campaignEvent, approval: camp("Hi {first_name}, see you soon"), names: { contact: "Ana 50% off\nSALE" } });
+    expect(r.ok && r.sms.body.split("\n")[0]).toBe("Hi Ana, see you soon");
   });
   it("never sends the same event twice", () => {
     expect(prep({ sentEventKeys: new Set([eventKey(recallEvent)]) })).toMatchObject({ ok: false, reason: "already_sent" });
@@ -230,11 +230,11 @@ describe("send pipeline", () => {
     // Texts about a dependent stay strict until the legal check (DPA s.13).
     expect(prep({ clinic: dental, subject: "dependent", approval: auto("recall-rule:r1", { template: "Hi {first_name}, Mika's dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
     // R50: another person, or a missing or unknown subject from an untyped payload, gets the strict rules.
-    // R60/R66/R67: patient, pet and clinic names are masked for the treatment check, so a name never blocks.
+    // R60/R66/R67: clinic categories judge the approved wording, never a name. A confirmed clinic name is not re-judged.
     const named = { ...dental, serviceCategories: ["Dr Ana consultation", "Step 1", "Psych"] };
     const tpl = "Hi {first_name}, your check-up at {clinic} is due.";
-    for (const vars of [{ first_name: "Ana", clinic: "Smile" }, { first_name: "Stephanie", clinic: "Smile" }, { first_name: "Bea", clinic: "Psych Wellness Center" }]) {
-      expect(prep({ clinic: named, vars, approval: auto("recall-rule:r1", { template: tpl }) }).ok).toBe(true);
+    for (const [contactName, displayName, displayNameConfirmedBy] of [["Ana Cruz", "Smile", null], ["Stephanie Go", "Smile", null], ["Bea Lim", "Psych Wellness Center", "owner@clinic"]] as const) {
+      expect(prep({ clinic: { ...named, displayName, displayNameConfirmedBy }, names: { contact: contactName }, approval: auto("recall-rule:r1", { template: tpl }) }).ok).toBe(true);
     }
     // ...but the approved wording itself is still judged.
     expect(prep({ clinic: named, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your psychiatry visit is due." }) })).toMatchObject({ ok: false, reason: "content" });
@@ -243,6 +243,44 @@ describe("send pipeline", () => {
       expect(prep({ clinic: dental, subject: subject as never, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: false, reason: "content" });
     }
     expect(prep({ clinic: dental, subject: "self", approval: auto("recall-rule:r1", { template: "Hi {first_name}, your dental check-up is due." }) })).toMatchObject({ ok: true });
+  });
+  it("R70/G21: names typed with notes go out as the cleaned first word only", () => {
+    const dental = { ...clinic, vertical: "dental" as const, serviceCategories: ["Braces adjustment"] };
+    const tpl = auto("recall-rule:r1", { template: "Hi {first_name}, your visit for {pet_name} is due." });
+    for (const [contactName, assetName] of [["Ana Cruz (braces)", "Lola (dialysis)"], ["Ana Cruz HIV", "Lola - dialysis"], ["Ana+HIV", "Lola [renal]"]]) {
+      const r = prep({ clinic: dental, approval: tpl, names: { contact: contactName!, asset: assetName! } });
+      expect(r.ok && r.sms.body.split("\n")[0]).toBe("Hi Ana, your visit for Lola is due.");
+    }
+  });
+  it("a cleaned name that is a sensitive word blocks a default text; a name with nothing left refuses the send", () => {
+    const dental = { ...clinic, vertical: "dental" as const, serviceCategories: [] };
+    expect(prep({ clinic: dental, names: { contact: "HIV Ana", asset: "Bantay" } })).toMatchObject({ ok: false, reason: "content" });
+    expect(prep({ clinic: dental, names: { contact: "Ana", asset: "Botox" } })).toMatchObject({ ok: false, reason: "content" });
+    expect(prep({ clinic: { ...dental, nameTreatmentsAllowed: true }, names: { contact: "Ana", asset: "Botox" } }).ok).toBe(true);
+    expect(prep({ names: { contact: "(note only)", asset: "Bantay" } })).toMatchObject({ ok: false, reason: "missing_variable" });
+  });
+  it("R75: a template may use only {first_name}, {pet_name} and {clinic}", () => {
+    expect(templateProblems("Hi {first_name}, {pet_name} is due at {clinic}.")).toEqual([]);
+    for (const t of ["Hi {last_name}", "Hi {full_name}", "At {clinic_name}", "Hi {First_Name}", "Hi {first_name", "Hi first_name}", "Hi { first_name }"]) {
+      expect(templateProblems(t).length).toBeGreaterThan(0);
+      expect(prep({ approval: auto("recall-rule:r1", { template: t }) })).toMatchObject({ ok: false, reason: "bad_template" });
+    }
+  });
+  it("G20/R71: {clinic} comes from the clinic record; a sensitive clinic name needs a named confirmation", () => {
+    const tpl = auto("recall-rule:r1", { template: "Hi {first_name}, {clinic} says your visit is due." });
+    const dental = { ...clinic, vertical: "dental" as const, serviceCategories: [], displayName: "Smile Implant Center" };
+    expect(prep({ clinic: dental, approval: tpl })).toMatchObject({ ok: false, reason: "clinic_name_unconfirmed" });
+    expect(prep({ clinic: { ...dental, displayNameConfirmedBy: " " }, approval: tpl })).toMatchObject({ ok: false, reason: "clinic_name_unconfirmed" });
+    const r = prep({ clinic: { ...dental, displayNameConfirmedBy: "owner@smile" }, approval: tpl });
+    expect(r.ok && r.sms.body.split("\n")[0]).toBe("Hi Ana, Smile Implant Center says your visit is due.");
+    // A template without {clinic} never needs the confirmation; a missing clinic name refuses a template that uses it.
+    expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your visit is due." }) }).ok).toBe(true);
+    expect(prep({ clinic: { ...dental, displayName: null }, approval: tpl })).toMatchObject({ ok: false, reason: "missing_variable" });
+  });
+  it("R72: the treatment check can't be switched off by the caller; approved wording is always judged", () => {
+    const dental = { ...clinic, vertical: "dental" as const, serviceCategories: ["Root canal"] };
+    expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, root canal day!" }) })).toMatchObject({ ok: false, reason: "content" });
+    expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your HIV test is due." }) })).toMatchObject({ ok: false, reason: "content" });
   });
   it("checks clinic-entered footer links for shorteners", () => {
     expect(prep({ clinic: { ...clinic, replyPhone: null, messengerUrl: "https://bit.ly/x" } })).toMatchObject({ ok: false, reason: "content" });

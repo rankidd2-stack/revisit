@@ -21,6 +21,8 @@ export type ClinicContextResult =
   | { ok: false; reason: "clinic_not_found" | "unsupported_timezone" };
 
 interface ClinicRow {
+  name: string;
+  display_name_confirmed_by: string | null;
   vertical: ClinicSendProfile["vertical"];
   sender_name: string | null;
   sender_name_status: "none" | "pending" | "approved";
@@ -44,7 +46,7 @@ const MAX_STALE_HOURS = 72;
 export async function loadClinicContext(db: Db, clinicId: string, now: Date): Promise<ClinicContextResult> {
   if (!isUuid(clinicId)) return { ok: false, reason: "clinic_not_found" };
   const [c] = (await db.query<ClinicRow>(
-    `select vertical, sender_name, sender_name_status, reply_phone, reply_email, messenger_url, timezone,
+    `select name, display_name_confirmed_by, vertical, sender_name, sender_name_status, reply_phone, reply_email, messenger_url, timezone,
             name_treatments_in_sms, marketing_cap_per_30d, sync_stale_after_hours
        from clinics where id = $1`, [clinicId])).rows;
   if (!c) return { ok: false, reason: "clinic_not_found" };
@@ -72,6 +74,8 @@ export async function loadClinicContext(db: Db, clinicId: string, now: Date): Pr
         senderName: c.sender_name,
         senderNameApproved: c.sender_name_status === "approved",
         nameTreatmentsAllowed: c.name_treatments_in_sms,
+        displayName: c.name,
+        displayNameConfirmedBy: c.display_name_confirmed_by,
         replyPhone: c.reply_phone,
         replyEmail: c.reply_email,
         messengerUrl: c.messenger_url,
