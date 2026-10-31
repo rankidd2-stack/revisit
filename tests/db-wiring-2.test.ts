@@ -244,3 +244,103 @@ describe("prepareFromDb: the subject is never the caller's (G33)", () => {
     expect(await prep(vet, ana, recall(MISSING, vetRule))).toEqual({ ok: false, reason: "event_not_found" });
   });
 });
+
+describe("round 2: timing comes from the database too (R97 to R99, R105, G36, G37)", () => {
+  const prep = (clinicId: string, contactId: string, event: SendEvent, at = now) => prepareFromDb(db, { clinicId, contactId, event, now: at, ...stop });
+  const petWithVisit = async (name: string, mobile: string, visitedOn = "2025-10-30") => {
+    const c = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, $2, $3) returning id`, [vet, name, mobile]);
+    const p = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', 'Kiko') returning id`, [vet, c]);
+    await db.query(`insert into visits (clinic_id, asset_id, service_category_id, visited_on) values ($1, $2, $3, $4)`, [vet, p, rabies, visitedOn]);
+    return { c, p };
+  };
+  const logSend = (contactId: string, assetId: string, ruleId: string, dueOn: string, offset: number, at: string, status = "sent") =>
+    db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, status, sent_at)
+              values ($1, $2, $3, 'recall', $4, $5, $6, $7, 'sms', 'admin', $8, $9)`,
+      [vet, contactId, `recall:${assetId}:${ruleId}:${dueOn}:${offset}`, assetId, ruleId, dueOn, offset, status, at]);
+  const queued = async (ruleId: string, at = now) => { const q = await loadRecallQueue(db, vet, ruleId, at); if (!q.ok) throw new Error(q.reason); return q.items; };
+
+  it("a queued recall is refused once the patient books before it goes out (R97)", async () => {
+    const { c, p } = await petWithVisit("Rio", "639170000030");
+    const item = (await queued(vetRule)).find((i) => i.assetId === p)!;
+    await db.query(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at, status) values ($1, $2, $3, '2026-11-03T01:00:00Z', 'booked')`, [vet, p, rabies]);
+    expect(await prep(vet, c, item.event)).toEqual({ ok: false, reason: "recall_not_due" });
+  });
+
+  it("a hand-built recall with another due date or step, or for an asset never seen for that service, is refused (G37)", async () => {
+    const { c, p } = await petWithVisit("Sol", "639170000031");
+    expect((await prep(vet, c, recall(p, vetRule))).ok).toBe(true);
+    expect(await prep(vet, c, recall(p, vetRule, "2026-10-31", 0))).toEqual({ ok: false, reason: "recall_not_due" });
+    expect(await prep(vet, c, recall(p, vetRule, "2026-10-30", 14))).toEqual({ ok: false, reason: "recall_not_due" });
+    const groomed = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', 'Tala') returning id`, [vet, c]);
+    await db.query(`insert into visits (clinic_id, asset_id, service_category_id, visited_on) values ($1, $2, $3, '2025-10-30')`, [vet, groomed, grooming]);
+    expect(await prep(vet, c, recall(groomed, vetRule))).toEqual({ ok: false, reason: "recall_not_due" });
+  });
+
+  it("a changed interval never repeats a step already sent since the last visit (R98)", async () => {
+    const { c, p } = await petWithVisit("Tess", "639170000032");
+    const r2 = await id(`insert into recall_rules (clinic_id, service_category_id, interval_days, template, active, approved_by)
+                         values ($1, $2, 365, 'Hi {first_name}.', true, 'admin') returning id`, [vet, rabies]);
+    await logSend(c, p, r2, "2026-10-30", 0, "2026-10-30T01:00:00Z");
+    // Changing the interval withdraws approval (trigger); the clinic re-approves it.
+    await db.query(`update recall_rules set interval_days = 363 where id = $1`, [r2]);
+    await db.query(`update recall_rules set active = true, approved_by = 'admin' where id = $1`, [r2]);
+    expect((await queued(r2, new Date("2026-10-31T02:00:00Z"))).map((i) => i.assetId)).not.toContain(p);
+  });
+
+  it("a step sent in the previous cycle, before the last visit, does not block the new cycle (R98)", async () => {
+    const { c, p } = await petWithVisit("Zed", "639170000040");
+    await logSend(c, p, vetRule, "2025-08-01", 60, "2025-09-30T02:00:00Z");
+    expect((await queued(vetRule)).find((i) => i.assetId === p)?.event).toEqual(recall(p, vetRule, "2026-10-30", 0));
+  });
+
+  it("a failed send counts as sent; a send under another rule does not (R105)", async () => {
+    const { c, p } = await petWithVisit("Uma", "639170000033");
+    const r3 = await id(`insert into recall_rules (clinic_id, service_category_id, interval_days, template, active, approved_by)
+                         values ($1, $2, 365, 'Hi {first_name}.', true, 'admin') returning id`, [vet, rabies]);
+    await logSend(c, p, r3, "2026-10-30", 0, "2026-10-30T00:30:00Z", "failed");
+    expect((await queued(r3)).map((i) => i.assetId)).not.toContain(p);
+    expect((await queued(vetRule)).map((i) => i.assetId)).toContain(p);
+  });
+
+  it("a booking earlier today, not yet marked completed, stops the recall (R99)", async () => {
+    const { p } = await petWithVisit("Val", "639170000034");
+    // 2026-10-30 01:00 UTC is 09:00 in Manila, an hour before `now`.
+    await db.query(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at, status) values ($1, $2, $3, '2026-10-30T01:00:00Z', 'confirmed')`, [vet, p, rabies]);
+    expect((await queued(vetRule)).map((i) => i.assetId)).not.toContain(p);
+  });
+
+  it("a step past the grace window is not offered; a wider grace offers it (R105)", async () => {
+    // Due 2026-09-25: step 14 fell on 2026-10-09, 21 days ago; step 60 is still ahead, so not lapsed.
+    const { p } = await petWithVisit("Wes", "639170000035", "2025-09-25");
+    expect((await queued(vetRule)).map((i) => i.assetId)).not.toContain(p);
+    const q = await loadRecallQueue(db, vet, vetRule, now, 30);
+    expect(q.ok && q.items.find((i) => i.assetId === p)?.event).toEqual(recall(p, vetRule, "2026-09-25", 14));
+  });
+
+  it("a NULL inside the rule's steps is ignored (R103)", async () => {
+    const { p } = await petWithVisit("Xia", "639170000036");
+    const r4 = await id(`insert into recall_rules (clinic_id, service_category_id, interval_days, step_offsets_days, template, active, approved_by)
+                         values ($1, $2, 365, '{-7,0,null}', 'Hi {first_name}.', true, 'admin') returning id`, [vet, rabies]);
+    expect((await queued(r4)).find((i) => i.assetId === p)?.event).toEqual(recall(p, r4, "2026-10-30", 0));
+  });
+
+  it("a 'self' text to a contact who also brings in another person is strict until the holder is confirmed (G36)", async () => {
+    expect(await loadSendTarget(db, dental, ben, recall(benSelf, dentalRule))).toMatchObject({ ok: true, subject: "other" });
+    expect(await prep(dental, ben, recall(benSelf, dentalRule))).toMatchObject({ ok: false, reason: "content" });
+  });
+
+  it("campaign subject: package-only contact is strict, a contact with no assets is 'self' (R105)", async () => {
+    const pk = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Pia', '639170000037') returning id`, [dental]);
+    await db.query(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'package', 'Aligners')`, [dental, pk]);
+    const none = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Quin', '639170000038') returning id`, [dental]);
+    expect(await loadSendTarget(db, dental, pk, { type: "campaign", campaignId: MISSING })).toMatchObject({ subject: "other" });
+    expect(await loadSendTarget(db, dental, none, { type: "campaign", campaignId: MISSING })).toMatchObject({ subject: "self" });
+  });
+
+  it("a pet label that cleans to nothing refuses a {pet_name} text (R105)", async () => {
+    const c = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Yna', '639170000039') returning id`, [vet]);
+    const p = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', '(no name)') returning id`, [vet, c]);
+    await db.query(`insert into visits (clinic_id, asset_id, service_category_id, visited_on) values ($1, $2, $3, '2025-10-30')`, [vet, p, rabies]);
+    expect(await prep(vet, c, recall(p, vetRule))).toEqual({ ok: false, reason: "missing_variable" });
+  });
+});

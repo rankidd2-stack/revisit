@@ -1,7 +1,8 @@
 import type { Db } from "./client.js";
 import { loadCampaignApproval, loadClinicContext, loadContact, loadRecallRuleApproval } from "./send-context.js";
 import { loadSendTarget } from "./send-target.js";
-import { prepareSms, type Approval, type PrepareResult, type SendEvent } from "../send/pipeline.js";
+import { checkRecallDue } from "./recall-queue.js";
+import { eventKey, prepareSms, type Approval, type PrepareResult, type SendEvent } from "../send/pipeline.js";
 
 /**
  * The database route to a PreparedSms: clinic, contact, approval, subject and names all come from
@@ -19,7 +20,7 @@ export interface PrepareFromDbArgs {
 
 export type PrepareFromDbResult =
   | PrepareResult
-  | { ok: false; reason: "clinic_not_found" | "unsupported_timezone" | "contact_not_found" | "event_not_found" | "asset_inactive" };
+  | { ok: false; reason: "clinic_not_found" | "unsupported_timezone" | "contact_not_found" | "event_not_found" | "asset_inactive" | "recall_not_due" };
 
 /** Reminders and feedback have no approval records yet, so they stay unapproved until they do. */
 async function approvalFor(db: Db, clinicId: string, event: SendEvent, now: Date): Promise<Approval | null> {
@@ -37,6 +38,12 @@ export async function prepareFromDb(db: Db, a: PrepareFromDbArgs): Promise<Prepa
   if (!contact.ok) return contact;
   const target = await loadSendTarget(db, a.clinicId, a.contactId, a.event);
   if (!target.ok) return target;
+  // R97, G37: a recall's timing is not the caller's either. Unless it was already sent (the pipeline
+  // says so), the database must give exactly this step for this asset and rule right now.
+  if (a.event.type === "recall" && !contact.sentEventKeys.has(eventKey(a.event))
+      && !(await checkRecallDue(db, a.clinicId, a.contactId, a.event, a.now))) {
+    return { ok: false, reason: "recall_not_due" };
+  }
   return prepareSms({
     clinic: clinic.clinic.profile,
     contact: contact.contact,

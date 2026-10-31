@@ -29,12 +29,12 @@ export async function loadSendTarget(db: Db, clinicId: string, contactId: string
   // Campaigns are announcements to the contact, not about one asset. A contact who brings in another
   // person (a child, a parent, a package that may be a child's) is treated as "other": strict rules,
   // so a broadcast can never read as a remark about that person's care. Inactive assets count too.
+  const household = async () => ((await db.query<{ n: number }>(
+    `select count(*)::int as n from assets where clinic_id = $1 and contact_id = $2 and kind not in ('self', 'pet')`,
+    [clinicId, contactId])).rows[0]?.n ?? 0) > 0;
   if (event?.type === "campaign") {
     if (!isUuid(event.campaignId)) return { ok: false, reason: "event_not_found" };
-    const [o] = (await db.query<{ n: number }>(
-      `select count(*)::int as n from assets where clinic_id = $1 and contact_id = $2 and kind not in ('self', 'pet')`,
-      [clinicId, contactId])).rows;
-    return { ok: true, subject: (o?.n ?? 0) > 0 ? "other" : "self", names: { contact: c.full_name, asset: null } };
+    return { ok: true, subject: (await household()) ? "other" : "self", names: { contact: c.full_name, asset: null } };
   }
 
   // Every other event names one asset, through the event's own row. The asset must belong to this
@@ -70,6 +70,9 @@ export async function loadSendTarget(db: Db, clinicId: string, contactId: string
   if (!a.active) return { ok: false, reason: "asset_inactive" };
   // An unknown kind is "other": strict. Only a pet's label may fill {pet_name}; a dependent's name
   // never goes into a text sent to a family number.
-  const subject: Subject = KINDS.has(a.kind) ? (a.kind as Subject) : "other";
+  let subject: Subject = KINDS.has(a.kind) ? (a.kind as Subject) : "other";
+  // G36: the import guesses who holds a shared number. Until the clinic confirms the holder of each
+  // grouped household, a "self" text to a contact who also brings in another person is strict.
+  if (subject === "self" && (await household())) subject = "other";
   return { ok: true, subject, names: { contact: c.full_name, asset: subject === "pet" ? a.label : null } };
 }
