@@ -29,7 +29,10 @@ function parseCsv(text) {
 }
 let findings = [];
 try { findings = parseCsv(readFileSync("status/findings.csv", "utf8")).slice(1); } catch { /* none yet */ }
-const open = findings.filter((r) => r[5] && r[5] !== "fixed");
+// findings.csv is append-only: a later row for the same id replaces the earlier one (latest status wins).
+const latest = new Map();
+for (const r of findings) { latest.delete(r[0]); latest.set(r[0], r); }
+const open = [...latest.values()].filter((r) => r[5] && r[5] !== "fixed");
 
 const icon = { done: "Done", in_progress: "In progress", in_review: "In review", parked: "Parked", todo: "To do" };
 const phaseLine = (p) => {
