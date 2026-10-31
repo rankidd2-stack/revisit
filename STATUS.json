@@ -1,6 +1,6 @@
 {
   "project": "Revisit (placeholder name) -- clinic retention console",
-  "lastUpdated": "2026-10-30",
+  "lastUpdated": "2026-10-31",
   "currentPhase": 1,
   "phases": [
     {
@@ -48,7 +48,24 @@
           "state": "done"
         },
         {
-          "name": "Database wiring and Google Sheet sync",
+          "name": "Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",
+          "state": "in_progress",
+          "note": "Not on main yet. Lives on branch claude/eager-turing-bwpp43 (parked after review round 6: blocker R70, should-fix R71-R73, nits R74-R75, compliance risks G20-G21; those findings arrive with the branch). Being reworked this run per the 2026-10-31 \"Direction for the parked branch\" entry in docs/DECISIONS.md (derived first names, three template variables, frozen word list), which replaces the round-6 fix plan. Must also cover G25 (recall loader skips inactive assets). On merge: reconcile finding IDs R32, R33, G9, G10, G11 (used for different findings on main and on the branch) and bring over Patrick's 2026-10-30 allowlist decision and the erased-opt-out legal item. Reviewer and compliance-guard sign-off required before done."
+        },
+        {
+          "name": "Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)",
+          "state": "done"
+        },
+        {
+          "name": "Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",
+          "state": "todo"
+        },
+        {
+          "name": "Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock",
+          "state": "todo"
+        },
+        {
+          "name": "Philippines market pack split",
           "state": "todo"
         }
       ]
@@ -147,7 +164,7 @@
     }
   ],
   "tests": {
-    "passing": 116,
+    "passing": 140,
     "failing": 0
   },
   "needsPatrick": [
@@ -170,10 +187,6 @@
     {
       "item": "Brand name",
       "recommendation": "Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains"
-    },
-    {
-      "item": "OK to allow the word cleaning/linis/check-up in default texts?",
-      "recommendation": "Yes. Routine care, the clinic name already shows it is a dental visit, and blocking it blocks nearly every recall"
     }
   ],
   "flags": []

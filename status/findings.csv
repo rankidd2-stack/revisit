@@ -47,3 +47,21 @@ R25,reviewer,should-fix,Send pipeline,A comma in the mobile field could add a se
 R26,reviewer,should-fix,Privacy,An opt-out could be unlinked from a living contact,fixed
 R27,reviewer,should-fix,Send log,A second send for one campaign could slip in under a new key,fixed
 R28,reviewer,should-fix,Import,Merges lost emails; Excel short dates and times were rejected,fixed
+R29,reviewer,should-fix,Sync,Failed-run logging in syncSheet could throw if the database is down,fixed
+R30,reviewer,should-fix,Sync,Bad clinic id threw before the clinic_not_found path,fixed
+R31,reviewer,should-fix,Sync,A failing final log write after commit marks the run failed (safe direction),fixed
+R32,reviewer,should-fix,Sync,cleanName fell back to the raw name, which could keep a note,fixed
+R33,reviewer,nit,Database,Round 2 suggestion 6 (contact uniqueness) was mistaken: unique mobile and email indexes already exist,deferred
+G9,compliance-guard,pass,Sync,Round 2 pass on sync apply: empty file or failed fetch logs a failed run; sync leaves clinic-owned status and names alone,fixed
+G10,pm,risk,Sync,"Real Sheet fetcher not built: https-only, redirect allowlist, timeout, byte cap, content-type check",deferred
+G11,pm,risk,Sync,"Scheduled runner, stale unfinished runs as failed, clinic alert, advisory lock not built",deferred
+R76,reviewer,nit,Database,"No migration runner yet; when built it must record each applied file, not only the highest number (002 merges after 003)",deferred
+R77,reviewer,nit,Sync,An email-only row matched to a contact whose mobile is muted still adds visits; the send gate blocks the send,deferred
+R78,reviewer,nit,Sync,A row matched by email to a contact with no mobile does not fill the mobile in,deferred
+R79,reviewer,nit,Sync,A mute-blocked insert was counted as skipped-inactive; now its own counter,fixed
+R80,reviewer,nit,Sync,"3 to 5 queries per row in one transaction; batch lookups in the runner milestone",deferred
+R81,reviewer,nit,Sync,"Patient ID accepted any single token (""HIV+""); now ID characters only with a digit",fixed
+R82,reviewer,should-fix,Tests,"Missing tests: patient ID filter, unknown service, duplicate visit index, non-code fetch error",fixed
+G23,compliance-guard,risk,Sync,"SyncOutcome.result carries patient rows; the scheduled runner must log counts only",deferred
+G24,compliance-guard,nit,Sync,A sync with a very high rejection rate still counts as ok; flag it to the clinic in the runner milestone,deferred
+G25,compliance-guard,nit,Recall,Visits can attach to a deactivated pet; recall eligibility must keep checking assets.active,deferred
