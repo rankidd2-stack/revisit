@@ -7,8 +7,9 @@ phase_id,phase,milestone,state
 1,1. Foundation,"Recall engine: due dates, 4-step sequence, stop on booking",done
 1,1. Foundation,"CSV import: PH numbers and dates, muted numbers never re-added",done
 1,1. Foundation,Semaphore SMS client and SMS cost counter,done
-1,1. Foundation,"Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",in_progress
+1,1. Foundation,"Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",done
 1,1. Foundation,"Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)",done
+1,1. Foundation,"Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets",todo
 1,1. Foundation,"Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",todo
 1,1. Foundation,"Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock",todo
 1,1. Foundation,Philippines market pack split,todo
