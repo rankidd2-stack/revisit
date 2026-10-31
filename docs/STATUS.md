@@ -2,7 +2,7 @@
 
 Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit by hand.
 
-**Tests:** 140 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 15
+**Tests:** 218 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 30
 
 ## Needs Patrick
 
@@ -12,8 +12,8 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
    Recommended: Target the week after the prototype ships
 3. **Register the business (DTI) and send one email to DTI Pampanga on free events and announcements**  
    Recommended: Claude drafts the email
-4. **Legal check: dental testimonials, and texting a family number about a dependent (DPA s.13)**  
-   Recommended: One consult covers both. Testimonials stay off for dental and texts never name treatments for dependents until then
+4. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, showing a clinic name that names a treatment ("Smile Implant Center") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)**  
+   Recommended: One consult covers all five. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, and the word list stays frozen
 5. **Brand name**  
    Recommended: Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains
 
@@ -22,7 +22,7 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 | Phase | State | Milestones done |
 | --- | --- | --- |
 | 0. Plan and setup | Done | 3 of 3 |
-| 1. Foundation | In progress | 6 of 10 |
+| 1. Foundation | In progress | 7 of 11 |
 | 2. AI console prototype (sales demo) | To do | 0 of 4 |
 | 3. Sending live | To do | 0 of 4 |
 | 4. Paid pilot | To do | 0 of 4 |
@@ -35,8 +35,9 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 - **Done:** Recall engine: due dates, 4-step sequence, stop on booking
 - **Done:** CSV import: PH numbers and dates, muted numbers never re-added
 - **Done:** Semaphore SMS client and SMS cost counter
-- **In progress:** Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)
+- **Done:** Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)
 - **Done:** Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)
+- **To do:** Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets
 - **To do:** Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check
 - **To do:** Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock
 - **To do:** Philippines market pack split
@@ -60,3 +61,18 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 | G23 | compliance-guard | risk | SyncOutcome.result carries patient rows; the scheduled runner must log counts only | deferred |
 | G24 | compliance-guard | nit | A sync with a very high rejection rate still counts as ok; flag it to the clinic in the runner milestone | deferred |
 | G25 | compliance-guard | nit | Visits can attach to a deactivated pet; recall eligibility must keep checking assets.active | deferred |
+| R35 | reviewer | nit | A scheduled campaign stays approved long after its time if the scheduler was down | deferred |
+| R36 | reviewer | should-fix | Caps and same-day rules are not enforced under concurrent senders; lock the contact and re-check at send time. Required before the send pipeline milestone passes | deferred |
+| R37 | reviewer | nit | A stop that only writes a mute does not follow the person to a new number; also append a linked opt-out | deferred |
+| R38 | reviewer | nit | Loader results don't carry their clinic id, so a caller could mix clinics | deferred |
+| R39 | reviewer | nit | Database wiring tests share one changing database and depend on order | deferred |
+| G26 | compliance-guard | risk | Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period | open |
+| G28 | compliance-guard | risk | Imports must never write consent rows, or a re-import could undo a stop | open |
+| R61 | reviewer | nit | A plain space inside a clinic word ("pre natal") is not caught; accepted limit, pinned by a test | deferred |
+| G16 | compliance-guard | note | Subject is supplied by the caller; derive it from assets.kind of the event's asset in the loader (Wiring 2) | open |
+| G19 | compliance-guard | note | "aids" now whole-word only; "hearing aids" still blocks (no word rule can tell them apart), accepted as fail-closed | deferred |
+| G22 | compliance-guard | note | "check" and "clean" are wider than Patrick's three words; logged as Claude's reading, small impact | deferred |
+| G32 | compliance-guard | risk | Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login | deferred |
+| G33 | compliance-guard | risk | Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send | open |
+| R96 | reviewer | nit | Words not on the frozen default list pass in names (Lasik, Thyroid, Stroke, Asthma); known limit of the safety net, for the legal consult | deferred |
+| G35 | compliance-guard | nit | Confirmation does not store which name was confirmed; rename trigger is the safeguard (part of G32) | deferred |

@@ -49,12 +49,17 @@
         },
         {
           "name": "Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)",
-          "state": "in_progress",
-          "note": "Not on main yet. Lives on branch claude/eager-turing-bwpp43 (parked after review round 6: blocker R70, should-fix R71-R73, nits R74-R75, compliance risks G20-G21; those findings arrive with the branch). Being reworked this run per the 2026-10-31 \"Direction for the parked branch\" entry in docs/DECISIONS.md (derived first names, three template variables, frozen word list), which replaces the round-6 fix plan. Must also cover G25 (recall loader skips inactive assets). On merge: reconcile finding IDs R32, R33, G9, G10, G11 (used for different findings on main and on the branch) and bring over Patrick's 2026-10-30 allowlist decision and the erased-opt-out legal item. Reviewer and compliance-guard sign-off required before done."
+          "state": "done",
+          "note": "Merged 2026-10-31. Templates use only {first_name}, {pet_name} and {clinic}; first and pet names are derived from the record, never typed; a clinic name that hits the sensitive list needs a stored confirmation and never goes into a text about a dependent. Reviewer pass (round 3), compliance-guard pass; 218 tests."
         },
         {
           "name": "Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)",
           "state": "done"
+        },
+        {
+          "name": "Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets",
+          "state": "todo",
+          "note": "G33 (covers G16 and G25). Required before any real send. Writing imports and sync runs is already covered by the done Sync apply milestone."
         },
         {
           "name": "Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",
@@ -164,7 +169,7 @@
     }
   ],
   "tests": {
-    "passing": 140,
+    "passing": 218,
     "failing": 0
   },
   "needsPatrick": [
@@ -181,8 +186,8 @@
       "recommendation": "Claude drafts the email"
     },
     {
-      "item": "Legal check: dental testimonials, and texting a family number about a dependent (DPA s.13)",
-      "recommendation": "One consult covers both. Testimonials stay off for dental and texts never name treatments for dependents until then"
+      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, showing a clinic name that names a treatment (\"Smile Implant Center\") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)",
+      "recommendation": "One consult covers all five. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, and the word list stays frozen"
     },
     {
       "item": "Brand name",

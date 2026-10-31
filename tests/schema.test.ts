@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 // Runs the real migration on an embedded Postgres and checks that the rules the app relies on
 // are enforced by the database itself, not just by app code.
@@ -10,7 +10,8 @@ const one = async <T = Record<string, unknown>>(sql: string, params: unknown[] =
 let clinicA: string, clinicB: string, contact: string, asset: string, svc: string, rule: string;
 
 beforeAll(async () => {
-  await db.exec(readFileSync(new URL("../db/migrations/001_init.sql", import.meta.url), "utf8"));
+  const dir = new URL("../db/migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.exec(readFileSync(new URL(f, dir), "utf8"));
   clinicA = (await one<{ id: string }>(`insert into clinics (name, vertical) values ('Paw Care', 'vet') returning id`)).id;
   clinicB = (await one<{ id: string }>(`insert into clinics (name, vertical) values ('Smile', 'dental') returning id`)).id;
   contact = (await one<{ id: string }>(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Ana Cruz', '639171234567') returning id`, [clinicA])).id;
@@ -108,7 +109,7 @@ describe("schema guarantees", () => {
   });
 
   it("reviewer pass 3: an opt-out can't be unlinked from a living contact", async () => {
-    const ev = (await one<{ id: string }>(`insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by) values ($1, $2, 'service', false, 'stop_link', 'v1', 'patient') returning id`, [clinicA, contact])).id;
+    const ev = (await one<{ id: string }>(`insert into consent_events (clinic_id, contact_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, $2, '639171234567', 'service', false, 'stop_link', 'v1', 'patient') returning id`, [clinicA, contact])).id;
     await rejects(`update consent_events set contact_id = null where id = $1`, [ev]);
   });
 
@@ -120,5 +121,22 @@ describe("schema guarantees", () => {
 
   it("sender names are at most 11 characters", async () => {
     await rejects(`update clinics set sender_name = 'PAWCAREVETCLINIC' where id = $1`, [clinicA]);
+  });
+});
+
+describe("migration 002 on a database that already holds data (R57)", () => {
+  it("trims old emails, keeps old ledger rows, and still checks new ones", async () => {
+    const old = new PGlite();
+    const dir = new URL("../db/migrations/", import.meta.url);
+    await old.exec(readFileSync(new URL("001_init.sql", dir), "utf8"));
+    const c = (await old.query<{ id: string }>(`insert into clinics (name, vertical) values ('Smile', 'dental') returning id`)).rows[0]!.id;
+    const p = (await old.query<{ id: string }>(`insert into contacts (clinic_id, full_name, email) values ($1, 'Ana', ' ana@x.com ') returning id`, [c])).rows[0]!.id;
+    await old.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'email', 'bo@x.com ', 'staff')`, [c]);
+    await old.query(`insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by, email_snapshot) values ($1, $2, 'marketing', false, 'staff', 'v1', 'admin', ' ana@x.com ')`, [c, p]);
+    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql") && f !== "001_init.sql").sort()) await old.exec(readFileSync(new URL(f, dir), "utf8"));
+    expect((await old.query<{ email: string }>(`select email from contacts`)).rows[0]!.email).toBe("ana@x.com");
+    expect((await old.query<{ value: string }>(`select value from mutes`)).rows[0]!.value).toBe("bo@x.com");
+    expect((await old.query(`select 1 from consent_events`)).rows).toHaveLength(1);
+    await expect(old.query(`insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by, email_snapshot) values ($1, $2, 'marketing', false, 'staff', 'v1', 'admin', ' ana@x.com ')`, [c, p])).rejects.toThrow();
   });
 });

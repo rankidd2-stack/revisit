@@ -1,0 +1,355 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { readdirSync, readFileSync } from "node:fs";
+import { asDate } from "../src/db/client.js";
+import { loadCampaignApproval, loadClinicContext, loadContact, loadRecallRuleApproval } from "../src/db/send-context.js";
+import { prepareSms } from "../src/send/pipeline.js";
+
+// Loads send-gate inputs from the real migration on an embedded Postgres, then feeds them to the
+// pipeline, so the rules hold on database rows and not only on hand-built objects.
+const db = new PGlite();
+const one = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows[0]!;
+const id = async (sql: string, params: unknown[] = []) => (await one<{ id: string }>(sql, params)).id;
+
+const now = new Date("2026-10-30T02:00:00Z");   // 10:00 in Manila
+const hoursAgo = (h: number) => new Date(now.getTime() - h * 3600_000).toISOString();
+const MISSING = "00000000-0000-4000-8000-000000000000";
+const recallTemplate = "Hi {first_name}, {pet_name} is due for a visit.";
+
+let clinicA: string, clinicB: string, ana: string, bantay: string, rule: string;
+
+beforeAll(async () => {
+  const dir = new URL("../db/migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.exec(readFileSync(new URL(f, dir), "utf8"));
+  clinicA = await id(`insert into clinics (name, vertical, sender_name, sender_name_status, reply_phone, marketing_cap_per_30d, sync_stale_after_hours)
+                      values ('Paw Care', 'vet', 'PAWCARE', 'approved', '0917 555 0000', 3, 24) returning id`);
+  clinicB = await id(`insert into clinics (name, vertical, sender_name, sender_name_status) values ('Smile', 'dental', 'SMILE', 'pending') returning id`);
+  const rabies = await id(`insert into service_categories (clinic_id, name) values ($1, 'Rabies vaccine') returning id`, [clinicA]);
+  await db.query(`insert into service_categories (clinic_id, name) values ($1, 'Deworming')`, [clinicA]);
+  await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true)`, [clinicA, hoursAgo(2)]);
+
+  ana = await id(`insert into contacts (clinic_id, full_name, mobile, email) values ($1, 'Ana Cruz', '639171234567', 'ana@example.com') returning id`, [clinicA]);
+  bantay = await id(`insert into assets (clinic_id, contact_id, kind, label, species) values ($1, $2, 'pet', 'Bantay', 'dog') returning id`, [clinicA, ana]);
+  const mingming = await id(`insert into assets (clinic_id, contact_id, kind, label, species, active) values ($1, $2, 'pet', 'Mingming', 'cat', false) returning id`, [clinicA, ana]);
+  await db.query(`insert into visits (clinic_id, asset_id, service_category_id, visited_on) values ($1, $2, $3, '2026-09-01'), ($1, $4, $3, '2026-10-20')`, [clinicA, bantay, rabies, mingming]);
+  await db.query(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at, status)
+                  values ($1, $2, $3, '2026-10-25T01:00:00Z', 'completed'), ($1, $2, $3, '2026-10-28T01:00:00Z', 'no_show')`, [clinicA, bantay, rabies]);
+  await db.query(`insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by, recorded_at)
+                  values ($1, $2, 'marketing', true, 'qr', 'v1', 'patient', '2026-06-01T00:00:00Z'),
+                         ($1, $2, 'service', true, 'intake_form', 'v1', 'patient', '2026-06-01T00:00:00Z')`, [clinicA, ana]);
+  rule = await id(`insert into recall_rules (clinic_id, service_category_id, interval_days, template, active, approved_by)
+                   values ($1, $2, 365, $3, true, 'admin') returning id`, [clinicA, rabies, recallTemplate]);
+});
+
+const clinicCtx = async (clinicId: string) => {
+  const r = await loadClinicContext(db, clinicId, now);
+  if (!r.ok) throw new Error(r.reason);
+  return r.clinic;
+};
+const contactOf = async (clinicId: string, contactId: string) => {
+  const r = await loadContact(db, clinicId, contactId);
+  if (!r.ok) throw new Error(r.reason);
+  return r;
+};
+
+describe("loading a clinic", () => {
+  it("reads the send profile, the clinic's own cap and default quiet hours", async () => {
+    const c = await clinicCtx(clinicA);
+    expect(c.profile).toEqual({
+      vertical: "vet", senderName: "PAWCARE", senderNameApproved: true, nameTreatmentsAllowed: false,
+      displayName: "Paw Care", displayNameConfirmedBy: null,
+      replyPhone: "0917 555 0000", replyEmail: null, messengerUrl: null, serviceCategories: ["Deworming", "Rabies vaccine"],
+    });
+    expect(c.policy).toEqual({ marketingCapPer30d: 3, quietStartHour: 20, quietEndHour: 8, syncHealthy: true });
+  });
+
+  it("a sender name counts only once it is registered", async () => {
+    expect((await clinicCtx(clinicB)).profile.senderNameApproved).toBe(false);
+  });
+
+  it("sync health follows the latest run and the clinic's own threshold", async () => {
+    const c = await id(`insert into clinics (name, vertical, sync_stale_after_hours) values ('Sync', 'vet', 24) returning id`);
+    expect((await clinicCtx(c)).sync).toMatchObject({ healthy: false, reason: "never_synced" });
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true)`, [c, hoursAgo(30)]);
+    expect((await clinicCtx(c)).sync).toMatchObject({ healthy: false, reason: "stale" });
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true)`, [c, hoursAgo(3)]);
+    expect((await clinicCtx(c)).policy.syncHealthy).toBe(true);
+    // A run still in progress changes nothing; a failed one pauses sends.
+    await db.query(`insert into sync_runs (clinic_id, source) values ($1, 'google_sheet')`, [c]);
+    expect((await clinicCtx(c)).policy.syncHealthy).toBe(true);
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok, error_code) values ($1, 'google_sheet', $2, false, 'sheet_unreachable')`, [c, hoursAgo(1)]);
+    const after = await clinicCtx(c);
+    expect(after.sync).toMatchObject({ healthy: false, reason: "last_run_failed" });
+    expect(after.policy.syncHealthy).toBe(false);
+  });
+
+  it("a run that finished in the future, or a tie with a failed run, never reads as healthy", async () => {
+    const skew = await id(`insert into clinics (name, vertical) values ('Skew', 'vet') returning id`);
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true)`, [skew, hoursAgo(-2)]);
+    expect((await clinicCtx(skew)).sync).toMatchObject({ healthy: false, reason: "clock_skew" });
+    const tie = await id(`insert into clinics (name, vertical) values ('Tie', 'vet') returning id`);
+    // Inserted ok-first and failed-first, so row order can't decide it.
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', $2, true), ($1, 'csv', $2, false), ($1, 'csv', $2, true)`, [tie, hoursAgo(1)]);
+    expect((await clinicCtx(tie)).sync).toMatchObject({ healthy: false, reason: "last_run_failed" });
+  });
+
+  it("one clinic's sync runs never count for another", async () => {
+    expect((await clinicCtx(clinicB)).sync).toMatchObject({ healthy: false, reason: "never_synced" });
+  });
+
+  it("refuses unknown, malformed and non-Manila clinics", async () => {
+    expect(await loadClinicContext(db, MISSING, now)).toEqual({ ok: false, reason: "clinic_not_found" });
+    expect(await loadClinicContext(db, "1; drop table clinics", now)).toEqual({ ok: false, reason: "clinic_not_found" });
+    const sg = await id(`insert into clinics (name, vertical, timezone) values ('SG', 'vet', 'Asia/Singapore') returning id`);
+    expect(await loadClinicContext(db, sg, now)).toEqual({ ok: false, reason: "unsupported_timezone" });
+  });
+});
+
+describe("loading a contact", () => {
+  it("builds the gate inputs from consent, visits across every pet, and completed appointments", async () => {
+    const r = await contactOf(clinicA, ana);
+    expect(r.contact).toMatchObject({
+      status: "active", muted: false, hasMobile: true, mobile: "639171234567", email: "ana@example.com",
+      consent: { service: true, marketing: true },
+      // Visits Sep 1 (Bantay) and Oct 20 (Mingming, inactive); completed appointment Oct 25 wins; the no-show doesn't count.
+      lastVisitOn: "2026-10-25",
+      pastSends: [],
+    });
+    expect(r.sentEventKeys.size).toBe(0);
+  });
+
+  it("the clinic's status for the contact flows through", async () => {
+    const c = await id(`insert into contacts (clinic_id, full_name, mobile, status) values ($1, 'Dina', '639170000009', 'deceased') returning id`, [clinicA]);
+    expect((await contactOf(clinicA, c)).contact.status).toBe("deceased");
+  });
+
+  it("a mute on the number or on the email stops texts", async () => {
+    const ben = await id(`insert into contacts (clinic_id, full_name, mobile, email) values ($1, 'Ben', '639170000001', 'ben@example.com') returning id`, [clinicA]);
+    expect((await contactOf(clinicA, ben)).contact.muted).toBe(false);
+    await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'email', 'ben@example.com', 'stop_link')`, [clinicA]);
+    expect((await contactOf(clinicA, ben)).contact.muted).toBe(true);
+    const cora = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Cora', '639170000002') returning id`, [clinicA]);
+    await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'mobile', '639170000002', 'staff')`, [clinicA]);
+    expect((await contactOf(clinicA, cora)).contact).toMatchObject({ muted: true, hasMobile: true });
+  });
+
+  it("an opt-out survives erasure and re-import; an opt-in does not carry over", async () => {
+    const mobile = "639170000003";
+    const old = await id(`insert into contacts (clinic_id, full_name, mobile, email) values ($1, 'Eli', $2, 'eli@example.com') returning id`, [clinicA, mobile]);
+    await db.query(`insert into consent_events (clinic_id, contact_id, mobile_snapshot, email_snapshot, purpose, granted, channel, text_version, captured_by)
+                    values ($1, $2, $3, 'eli@example.com', 'marketing', true, 'qr', 'v1', 'patient'),
+                           ($1, $2, $3, 'eli@example.com', 'service', false, 'staff', 'v1', 'staff:1')`, [clinicA, old, mobile]);
+    await db.query(`delete from contacts where id = $1`, [old]);
+    const again = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Eli', $2) returning id`, [clinicA, mobile]);
+    expect((await contactOf(clinicA, again)).contact.consent).toEqual({ service: false });
+    // Matched on email too.
+    const byEmail = await id(`insert into contacts (clinic_id, full_name, email) values ($1, 'Eli', 'eli@example.com') returning id`, [clinicA]);
+    expect((await contactOf(clinicA, byEmail)).contact).toMatchObject({ consent: { service: false }, hasMobile: false, mobile: null });
+  });
+
+  it("an orphaned opt-out beats a linked opt-in recorded at the same moment", async () => {
+    const t = "2026-09-01T00:00:00Z";
+    const gil = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Gil', '639170000005') returning id`, [clinicA]);
+    await db.query(`insert into consent_events (clinic_id, contact_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by, recorded_at)
+                    values ($1, null, '639170000005', 'marketing', false, 'stop_link', 'v1', 'patient', $3),
+                           ($1, $2, '639170000005', 'marketing', true, 'qr', 'v1', 'patient', $3)`, [clinicA, gil, t]);
+    expect((await contactOf(clinicA, gil)).contact.consent).toEqual({ marketing: false });
+  });
+
+  it("a completed appointment late in the UTC day lands on the next Manila date", async () => {
+    const hana = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Hana', '639170000006') returning id`, [clinicA]);
+    const self = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'self', 'Self') returning id`, [clinicA, hana]);
+    const svc = await id(`select id from service_categories where clinic_id = $1 and name = 'Deworming'`, [clinicA]);
+    await db.query(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at, status) values ($1, $2, $3, '2026-10-29T16:30:00Z', 'completed')`, [clinicA, self, svc]);
+    expect((await contactOf(clinicA, hana)).contact.lastVisitOn).toBe("2026-10-30");
+  });
+
+  it("dates and times read the same whatever the session's date style", async () => {
+    await db.exec(`set datestyle = 'SQL, DMY'`);
+    try {
+      expect((await contactOf(clinicA, ana)).contact.lastVisitOn).toBe("2026-10-25");
+      // 2026-10-30 00:00Z would read as "30/10/2026" in this style; an ambiguous day (06/10) would be misread as text.
+      expect((await clinicCtx(clinicA)).sync).toEqual({ healthy: true, lastOkAt: new Date(hoursAgo(2)) });
+      const [v] = (await db.query<{ last: string }>(`select max(visited_on)::text as last from visits where clinic_id = $1`, [clinicA])).rows;
+      expect(v!.last).not.toMatch(/^\d{4}-/);   // proves the setting took effect
+    } finally {
+      await db.exec(`set datestyle = 'ISO, MDY'`);
+    }
+  });
+
+  it("another contact's sends are never counted", async () => {
+    const ivy = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Ivy', '639170000007') returning id`, [clinicA]);
+    const joy = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Joy', '639170000008') returning id`, [clinicA]);
+    await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, sent_at) values ($1, $2, 'reminder:appt9:24h', 'reminder', 'sms', 'a', $3)`, [clinicA, ivy, hoursAgo(1)]);
+    const r = await contactOf(clinicA, joy);
+    expect(r.contact.pastSends).toEqual([]);
+    expect(r.sentEventKeys.size).toBe(0);
+  });
+
+  it("failed sends still count toward caps, and every logged key blocks a resend", async () => {
+    const fe = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Fe', '639170000004') returning id`, [clinicA]);
+    const camp = await id(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by) values ($1, 'News', 'Open Saturdays', 'clinic_news', 'live', 'admin') returning id`, [clinicA]);
+    await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, campaign_id, channel, approved_by, status, sent_at)
+                    values ($1, $2, $3, 'marketing', $4, 'sms', 'admin', 'failed', $5)`, [clinicA, fe, `campaign:${camp}`, camp, hoursAgo(5)]);
+    const r = await contactOf(clinicA, fe);
+    expect(r.contact.pastSends).toEqual([{ kind: "marketing", campaignId: camp, sentAt: new Date(hoursAgo(5)) }]);
+    expect([...r.sentEventKeys]).toEqual([`campaign:${camp}`]);
+  });
+
+  it("never loads another clinic's contact, consent or mutes", async () => {
+    expect(await loadContact(db, clinicB, ana)).toEqual({ ok: false, reason: "contact_not_found" });
+    expect(await loadContact(db, clinicA, MISSING)).toEqual({ ok: false, reason: "contact_not_found" });
+    expect(await loadContact(db, clinicA, "not-a-uuid")).toEqual({ ok: false, reason: "contact_not_found" });
+    await db.query(`insert into consent_events (clinic_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by)
+                    values ($1, '639171234567', 'service', false, 'staff', 'v1', 'staff:9')`, [clinicB]);
+    await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'mobile', '639171234567', 'stop_link')`, [clinicB]);
+    expect((await contactOf(clinicA, ana)).contact).toMatchObject({ muted: false, consent: { service: true, marketing: true } });
+  });
+});
+
+describe("loading approvals", () => {
+  const campaign = (status: string, over: { approvedBy?: string | null; scheduledFor?: string | null } = {}) =>
+    id(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by, scheduled_for)
+        values ($1, 'News', 'We now open on Saturdays.', 'clinic_news', $2, $3, $4) returning id`,
+      [clinicA, status, over.approvedBy === undefined ? "admin" : over.approvedBy, over.scheduledFor ?? null]);
+
+  it("only a live campaign, or a scheduled one whose time has come, is approved", async () => {
+    const live = await campaign("live");
+    expect(await loadCampaignApproval(db, clinicA, live, now)).toEqual({ type: "campaign", campaignId: live, approvedBy: "admin", template: "We now open on Saturdays." });
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: hoursAgo(1) }), now)).toMatchObject({ type: "campaign" });
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: now.toISOString() }), now)).toMatchObject({ type: "campaign" });
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: new Date(now.getTime() + 1000).toISOString() }), now)).toBeNull();
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled", { scheduledFor: hoursAgo(-24) }), now)).toBeNull();
+    expect(await loadCampaignApproval(db, clinicA, await campaign("scheduled"), now)).toBeNull();
+    for (const status of ["draft", "pending_approval", "paused", "ended"]) {
+      expect(await loadCampaignApproval(db, clinicA, await campaign(status), now)).toBeNull();
+    }
+    expect(await loadCampaignApproval(db, clinicA, await campaign("draft", { approvedBy: null }), now)).toBeNull();
+  });
+
+  it("never carries a stale-sync acknowledgement; only a person pressing send can add one", async () => {
+    const a = await loadCampaignApproval(db, clinicA, await campaign("live"), now);
+    expect(a && "staleAcknowledgedBy" in a).toBe(false);
+  });
+
+  it("editing a live campaign's wording withdraws its approval", async () => {
+    const c = await campaign("live");
+    await db.query(`update campaigns set body = 'New wording' where id = $1`, [c]);
+    expect(await loadCampaignApproval(db, clinicA, c, now)).toBeNull();
+  });
+
+  it("an approval never crosses clinics", async () => {
+    expect(await loadCampaignApproval(db, clinicB, await campaign("live"), now)).toBeNull();
+    expect(await loadRecallRuleApproval(db, clinicB, rule)).toBeNull();
+    expect(await loadCampaignApproval(db, clinicA, "x", now)).toBeNull();
+  });
+
+  it("a recall rule is approved only while active, and only for its own wording", async () => {
+    expect(await loadRecallRuleApproval(db, clinicA, rule)).toEqual({ type: "automation", automationId: `recall-rule:${rule}`, approvedBy: "admin", template: recallTemplate });
+    const svc = await id(`select id from service_categories where clinic_id = $1 and name = 'Deworming'`, [clinicA]);
+    const other = await id(`insert into recall_rules (clinic_id, service_category_id, interval_days, template, active, approved_by)
+                            values ($1, $2, 90, 'Hi {first_name}, {pet_name} is due.', true, 'admin') returning id`, [clinicA, svc]);
+    await db.query(`update recall_rules set template = 'Changed wording' where id = $1`, [other]);
+    expect(await loadRecallRuleApproval(db, clinicA, other)).toBeNull();
+    await db.query(`update recall_rules set template = 'Hi {first_name}.', active = false, approved_by = 'admin' where id = $1`, [other]);
+    expect(await loadRecallRuleApproval(db, clinicA, other)).toBeNull();
+  });
+});
+
+describe("database rows drive the send pipeline", () => {
+  const prepare = async (contactId: string, event: Parameters<typeof prepareSms>[0]["event"], approval: Parameters<typeof prepareSms>[0]["approval"]) => {
+    const clinic = await clinicCtx(clinicA);
+    const c = await contactOf(clinicA, contactId);
+    return prepareSms({
+      clinic: clinic.profile, contact: c.contact, policy: clinic.policy, now, approval, event, subject: "pet",
+      sentEventKeys: c.sentEventKeys, names: { contact: "Ana Cruz", asset: "Bantay" },
+      stopUrl: "https://revisit.example/s/x1", stopLinkHost: "revisit.example",
+    });
+  };
+  const recallEvent = () => ({ type: "recall" as const, assetId: bantay, ruleId: rule, dueOn: "2026-10-30", stepOffsetDays: 0 });
+
+  it("a loaded recall goes out once, with the approved wording and the footer", async () => {
+    const r = await prepare(ana, recallEvent(), await loadRecallRuleApproval(db, clinicA, rule));
+    expect(r.ok && r.sms.body).toBe("Hi Ana, Bantay is due for a visit.\nReply: 0917 555 0000\nStop msgs: https://revisit.example/s/x1");
+    await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, status, sent_at)
+                    values ($1, $2, $3, 'recall', $4, $5, '2026-10-30', 0, 'sms', 'admin', 'sent', $6)`,
+      [clinicA, ana, r.ok ? r.sms.eventKey : "", bantay, rule, now.toISOString()]);
+    expect(await prepare(ana, recallEvent(), await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "already_sent" });
+  });
+
+  it("a completed appointment in the database blocks marketing for 7 days", async () => {
+    const c = await id(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by) values ($1, 'Tip', 'Keep fresh water out on hot days.', 'care_tip', 'live', 'admin') returning id`, [clinicA]);
+    const r = await prepare(ana, { type: "campaign", campaignId: c }, await loadCampaignApproval(db, clinicA, c, now));
+    expect(r).toMatchObject({ ok: false, reason: "recent_visit" });
+  });
+
+  it("a contact the clinic marked deceased gets nothing", async () => {
+    const kim = await id(`insert into contacts (clinic_id, full_name, mobile, status) values ($1, 'Kim', '639170000010', 'deceased') returning id`, [clinicA]);
+    const pet = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', 'Brownie') returning id`, [clinicA, kim]);
+    expect(await prepare(kim, { ...recallEvent(), assetId: pet }, await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "inactive_status" });
+  });
+
+  it("a stop-link mute in the database stops the next text", async () => {
+    await db.query(`insert into mutes (clinic_id, kind, value, reason) values ($1, 'mobile', '639171234567', 'stop_link')`, [clinicA]);
+    const next = { ...recallEvent(), stepOffsetDays: 14 };
+    expect(await prepare(ana, next, await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "muted" });
+  });
+
+  it("a failed sync in the database pauses automated sends", async () => {
+    const lee = await id(`insert into contacts (clinic_id, full_name, mobile) values ($1, 'Lee', '639170000011') returning id`, [clinicA]);
+    const pet = await id(`insert into assets (clinic_id, contact_id, kind, label) values ($1, $2, 'pet', 'Choco') returning id`, [clinicA, lee]);
+    await db.query(`insert into sync_runs (clinic_id, source, finished_at, ok, error_code) values ($1, 'google_sheet', $2, false, 'sheet_unreachable')`, [clinicA, hoursAgo(1)]);
+    expect(await prepare(lee, { ...recallEvent(), assetId: pet }, await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "sync_stale" });
+  });
+});
+
+describe("gate inputs must be real values (reviewer pass 4)", () => {
+  it("timestamps from any driver are read, and unreadable ones throw instead of passing a check", () => {
+    expect(asDate("2026-10-30 10:00:00.123456+08").toISOString()).toBe("2026-10-30T02:00:00.123Z");
+    expect(asDate(new Date(0)).getTime()).toBe(0);
+    for (const bad of ["infinity", "-infinity", "garbage", Infinity, -Infinity]) expect(() => asDate(bad)).toThrow(/Unreadable/);
+  });
+
+  it("the database refuses infinite times, an unbounded staleness pause and odd snapshot formats", async () => {
+    const r = (name: string, sql: string, params: unknown[] = []) => expect(db.query(sql, params)).rejects.toThrow(name);
+    await r("sync_runs_finished_finite", `insert into sync_runs (clinic_id, source, finished_at, ok) values ($1, 'csv', 'infinity', true)`, [clinicA]);
+    await r("consent_recorded_finite", `insert into consent_events (clinic_id, purpose, granted, channel, text_version, captured_by, recorded_at) values ($1, 'marketing', true, 'qr', 'v1', 'patient', '-infinity')`, [clinicA]);
+    await r("sends_sent_finite", `insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, sent_at) values ($1, $2, 'reminder:x:24h', 'reminder', 'sms', 'a', 'infinity')`, [clinicA, ana]);
+    await r("campaigns_scheduled_finite", `insert into campaigns (clinic_id, name, body, announcement_type, scheduled_for) values ($1, 'N', 'B', 'clinic_news', 'infinity')`, [clinicA]);
+    await r("appointments_starts_finite", `insert into appointments (clinic_id, asset_id, service_category_id, starts_at) select $1, $2, id, 'infinity' from service_categories where clinic_id = $1 limit 1`, [clinicA, bantay]);
+    for (const h of [0, 73, 100000]) await r("sync_stale_bounds", `update clinics set sync_stale_after_hours = $2 where id = $1`, [clinicA, h]);
+    await r("consent_mobile_snapshot_format", `insert into consent_events (clinic_id, mobile_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, '09171234567', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r("consent_email_snapshot_format", `insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, 'Eli@Example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r("consent_email_snapshot_format", `insert into consent_events (clinic_id, email_snapshot, purpose, granted, channel, text_version, captured_by) values ($1, ' eli@example.com', 'service', false, 'staff', 'v1', 's')`, [clinicA]);
+    await r("consent_optout_has_snapshot", `insert into consent_events (clinic_id, contact_id, purpose, granted, channel, text_version, captured_by) values ($1, $2, 'service', false, 'staff', 'v1', 's')`, [clinicA, ana]);
+    await r("contacts_email_trimmed", `insert into contacts (clinic_id, full_name, email) values ($1, 'Pat', ' pat@example.com')`, [clinicA]);
+    await r("mutes_value_trimmed", `insert into mutes (clinic_id, kind, value, reason) values ($1, 'email', 'pat@example.com ', 'staff')`, [clinicA]);
+  });
+});
+
+describe("migration 004: template variables and the clinic name confirmation", () => {
+  it("an approved template may use only the three variables; a draft may hold anything", async () => {
+    const svc = await id(`insert into service_categories (clinic_id, name) values ($1, 'Checkup 004') returning id`, [clinicA]);
+    await expect(db.query(`insert into recall_rules (clinic_id, service_category_id, interval_days, template, active, approved_by) values ($1, $2, 180, 'Hi {last_name}', true, 'admin')`, [clinicA, svc]))
+      .rejects.toThrow(/recall_template_vars/);
+    await expect(db.query(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by) values ($1, 'N', 'At {clinic_name}', 'clinic_news', 'live', 'admin')`, [clinicA]))
+      .rejects.toThrow(/campaign_body_vars/);
+    await db.query(`insert into campaigns (clinic_id, name, body, announcement_type, status) values ($1, 'Draft', 'Hi {full_name}', 'clinic_news', 'draft')`, [clinicA]);
+    await db.query(`insert into campaigns (clinic_id, name, body, announcement_type, status, approved_by) values ($1, 'Ok', 'Hi {first_name}, {clinic} is open Saturdays', 'clinic_news', 'live', 'admin')`, [clinicA]);
+  });
+  it("a confirmation needs who and when, and renaming the clinic clears it", async () => {
+    const c = await id(`insert into clinics (name, vertical) values ('Smile Implant Center', 'dental') returning id`);
+    await expect(db.query(`update clinics set display_name_confirmed_by = 'owner' where id = $1`, [c])).rejects.toThrow(/display_name_confirmation_pair/);
+    await db.query(`update clinics set display_name_confirmed_by = 'owner', display_name_confirmed_at = now() where id = $1`, [c]);
+    expect((await clinicCtx(c)).profile).toMatchObject({ displayName: "Smile Implant Center", displayNameConfirmedBy: "owner" });
+    await db.query(`update clinics set name = 'Smile HIV Center' where id = $1`, [c]);
+    expect(await one(`select display_name_confirmed_by, display_name_confirmed_at from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null, display_name_confirmed_at: null });
+    // Renaming and confirming in one save still leaves the new name unconfirmed.
+    await db.query(`update clinics set name = 'Smile Rehab Center', display_name_confirmed_by = 'owner', display_name_confirmed_at = now() where id = $1`, [c]);
+    expect(await one(`select display_name_confirmed_by, display_name_confirmed_at from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null, display_name_confirmed_at: null });
+  });
+  it("a new clinic starts unconfirmed even if the insert sets a confirmation", async () => {
+    const c = await id(`insert into clinics (name, vertical, display_name_confirmed_by, display_name_confirmed_at) values ('Manila HIV Center', 'other', 'owner', now()) returning id`);
+    expect(await one(`select display_name_confirmed_by from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null });
+  });
+});
