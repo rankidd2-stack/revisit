@@ -55,3 +55,13 @@ R33,reviewer,nit,Database,Round 2 suggestion 6 (contact uniqueness) was mistaken
 G9,compliance-guard,pass,Sync,Round 2 pass on sync apply: empty file or failed fetch logs a failed run; sync leaves clinic-owned status and names alone,fixed
 G10,pm,risk,Sync,"Real Sheet fetcher not built: https-only, redirect allowlist, timeout, byte cap, content-type check",deferred
 G11,pm,risk,Sync,"Scheduled runner, stale unfinished runs as failed, clinic alert, advisory lock not built",deferred
+R76,reviewer,nit,Database,"No migration runner yet; when built it must record each applied file, not only the highest number (002 merges after 003)",deferred
+R77,reviewer,nit,Sync,An email-only row matched to a contact whose mobile is muted still adds visits; the send gate blocks the send,deferred
+R78,reviewer,nit,Sync,A row matched by email to a contact with no mobile does not fill the mobile in,deferred
+R79,reviewer,nit,Sync,A mute-blocked insert was counted as skipped-inactive; now its own counter,fixed
+R80,reviewer,nit,Sync,"3 to 5 queries per row in one transaction; batch lookups in the runner milestone",deferred
+R81,reviewer,nit,Sync,"Patient ID accepted any single token (""HIV+""); now ID characters only with a digit",fixed
+R82,reviewer,should-fix,Tests,"Missing tests: patient ID filter, unknown service, duplicate visit index, non-code fetch error",fixed
+G23,compliance-guard,risk,Sync,"SyncOutcome.result carries patient rows; the scheduled runner must log counts only",deferred
+G24,compliance-guard,nit,Sync,A sync with a very high rejection rate still counts as ok; flag it to the clinic in the runner milestone,deferred
+G25,compliance-guard,nit,Recall,Visits can attach to a deactivated pet; recall eligibility must keep checking assets.active,deferred

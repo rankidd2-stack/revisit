@@ -82,3 +82,13 @@ the matcher; take free text out of patient texts instead.
    handled by making those stems more specific; new additions wait for the legal consult. The list is a safety
    net; the real safeguards are the approved template and the cleaned variables.
 6. Merge `claude/charming-pascal-tycjpp` first (it is ready), then finish this branch on the new design.
+
+## 2026-10-31 -- Sync apply merged to main (scheduled run; reviewer: pass; compliance-guard: pass; 140 tests)
+- Integrated `claude/charming-pascal-tycjpp` onto main ahead of the parked branch, as the direction above says.
+- Migration numbering: main now has 001 and 003. The parked branch's 002 merges later and runs before 003 in tests (sorted load); 002 does not touch visits, so order is safe. Any future migration runner must record each applied file name, not only the highest number (R76).
+- Fixed from this round: patient IDs are kept only when they look like a code (ID characters and at least one digit), so "HIV+" or "allergic-penicillin" is dropped (R81, compliance risk 1); a mute that blocks an insert has its own counter (R79); four missing tests added (R82).
+- Deferred to the scheduled runner milestone: log counts only, never SyncOutcome.result (G23); flag a sync with a high rejection rate (G24); batch lookups (R80).
+- Deferred, by design for now: an email-only row matched to a contact whose mobile is muted still adds a visit (R77; the send gate blocks every send to a muted number); a contact matched by email does not get the row's mobile filled in (R78; filling a mobile from a sheet could attach a stranger's number, so the clinic adds it by hand).
+- Recall loader must skip inactive assets (G25); noted for Database wiring 1.
+
+- PM check (2026-10-31): "Database wiring 1" added to main's STATUS.json as in_progress (it lives on `claude/eager-turing-bwpp43`). The needsPatrick item on cleaning/linis/check-up wording is removed: Patrick answered it on 2026-10-30 (cleaning, check-up and consultation allowed, English only, linis not), logged on that branch; the full entry reaches main when the branch merges. Finding IDs R32, R33 and G9 to G11 mean different things on main and on that branch; renumber the branch's copies at merge (findings.csv stays append-only).

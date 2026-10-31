@@ -17,6 +17,7 @@ export interface SyncOutcome {
   contactsAdded: number;
   contactsUpdated: number;
   contactsSkippedInactive: number;
+  contactsSkippedMuted: number;  // blocked at insert by a mute that landed after the import read the list
   conflicts: number;   // row's email belongs to a contact with a different mobile; left for the clinic
   visitsAdded: number;
   result: ImportResult | null;
@@ -24,7 +25,8 @@ export interface SyncOutcome {
 
 /** Names and refs are identifiers only: drop bracketed notes and text after a dash, cap the length. */
 const cleanName = (n: string) => n.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").split(/\s[-\u2013\u2014]\s/)[0]!.replace(/\s+/g, " ").trim().slice(0, 80) || "Patient";
-const cleanRef = (r: string | null) => (r && /^\S{1,40}$/.test(r) ? r : null);
+// A patient ID is a code, not words: ID characters only and at least one digit, so "HIV+" or "allergic-penicillin" is dropped.
+const cleanRef = (r: string | null) => (r && /^[A-Za-z0-9._/-]{1,40}$/.test(r) && /[0-9]/.test(r) ? r : null);
 
 /** Logs a run that failed before any file reached applySync (for example a Sheet fetch), so sends pause. */
 export async function recordFailedRun(db: Db, clinicId: string, source: SyncSource, errorCode: string): Promise<void> {
@@ -49,7 +51,7 @@ export async function applySync(db: Db, clinicId: string, text: string, source: 
   if (!(await db.query(`select 1 from clinics where id = $1`, [clinicId])).rows.length) throw new Error("clinic_not_found");
   const run = (await db.query<{ id: string }>(
     `insert into sync_runs (clinic_id, source) values ($1, $2) returning id`, [clinicId, source])).rows[0]!;
-  const out: SyncOutcome = { ok: false, runId: run.id, errorCode: null, contactsAdded: 0, contactsUpdated: 0, contactsSkippedInactive: 0, conflicts: 0, visitsAdded: 0, result: null };
+  const out: SyncOutcome = { ok: false, runId: run.id, errorCode: null, contactsAdded: 0, contactsUpdated: 0, contactsSkippedInactive: 0, contactsSkippedMuted: 0, conflicts: 0, visitsAdded: 0, result: null };
   const finish = (rowsIn: number | null, rejected: number | null) => db.query(
     `update sync_runs set finished_at = now(), ok = $2, rows_in = $3, rows_rejected = $4, error_code = $5 where id = $1`,
     [run.id, out.ok, rowsIn, rejected, out.errorCode]);
@@ -99,7 +101,7 @@ export async function applySync(db: Db, clinicId: string, text: string, source: 
              where not exists (select 1 from mutes where clinic_id = $1 and ((kind = 'mobile' and value = $3) or (kind = 'email' and value = $4)))
              returning id`,
             [clinicId, cleanName(row.fullName), row.mobile, row.email, cleanRef(row.externalRef)])).rows[0]?.id as string;
-          if (!contactId) { out.contactsSkippedInactive++; continue; }
+          if (!contactId) { out.contactsSkippedMuted++; continue; }
           out.contactsAdded++;
         }
         const label = row.assetKind === "self" ? "Self" : row.assetLabel ?? "Other";
@@ -124,7 +126,7 @@ export async function applySync(db: Db, clinicId: string, text: string, source: 
       await db.query("commit");
     } catch (e) {
       await db.query("rollback");
-      out.contactsAdded = out.contactsUpdated = out.contactsSkippedInactive = out.conflicts = out.visitsAdded = 0;
+      out.contactsAdded = out.contactsUpdated = out.contactsSkippedInactive = out.contactsSkippedMuted = out.conflicts = out.visitsAdded = 0;
       throw e;
     }
     out.ok = true;

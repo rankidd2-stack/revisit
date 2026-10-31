@@ -135,6 +135,28 @@ describe("data hygiene and sheet sync", () => {
     expect(await applySync(db, other, FILE, "csv", now)).toMatchObject({ ok: true, contactsAdded: 1 });
     expect(await count("contacts")).toBe(2);
   });
+  it("keeps a patient ID only when it looks like a code", async () => {
+    await applySync(db, clinic, "Owner,Mobile,Id\nAna,09171234567,P-0042\nBen,09181234567,allergic-penicillin\nCy,09191234567,HIV+\n", "csv", now);
+    const refs = (await db.query<{ external_ref: string | null }>(`select external_ref from contacts order by full_name`)).rows.map((r) => r.external_ref);
+    expect(refs).toEqual(["P-0042", null, null]);
+  });
+  it("adds the contact but no visit when the service is not one of the clinic's", async () => {
+    const o = await applySync(db, clinic, FILE.replace("Rabies vaccine", "Grooming"), "csv", now);
+    expect(o).toMatchObject({ ok: true, contactsAdded: 1, visitsAdded: 0 });
+    expect(await count("visits")).toBe(0);
+  });
+  it("the database refuses a second visit for the same pet, service and day", async () => {
+    await applySync(db, clinic, FILE, "csv", now);
+    const v = (await db.query<{ clinic_id: string; asset_id: string; service_category_id: string; visited_on: string }>(`select clinic_id, asset_id, service_category_id, visited_on from visits`)).rows[0]!;
+    await expect(db.query(`insert into visits (clinic_id, asset_id, service_category_id, visited_on, source) values ($1, $2, $3, $4, 'csv')`,
+      [v.clinic_id, v.asset_id, v.service_category_id, v.visited_on])).rejects.toThrow();
+  });
+  it("stores a fetcher error that is not a fixed code as sheet_fetch_failed", async () => {
+    const id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+    const boom = async (): Promise<never> => { throw new Error("connect ECONNREFUSED 10.0.0.1:443 for Ana Cruz"); };
+    expect(await syncSheet(db, clinic, boom, id, "0", now)).toMatchObject({ ok: false, errorCode: "sheet_fetch_failed" });
+    expect((await db.query<{ error_code: string }>(`select error_code from sync_runs`)).rows[0]!.error_code).toBe("sheet_fetch_failed");
+  });
   it("applies a good sheet", async () => {
     const id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
     const good = async () => ({ ok: true, status: 200, text: async () => FILE });
