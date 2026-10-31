@@ -277,6 +277,17 @@ describe("send pipeline", () => {
     expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, your visit is due." }) }).ok).toBe(true);
     expect(prep({ clinic: { ...dental, displayName: null }, approval: tpl })).toMatchObject({ ok: false, reason: "missing_variable" });
   });
+  it("round 2: a sensitive clinic name never goes into a text about another person, even confirmed; names are not cut", () => {
+    const tpl = auto("recall-rule:r1", { template: "Hi {first_name}, {clinic} says a visit is due." });
+    const dental = { ...clinic, vertical: "dental" as const, serviceCategories: [], displayName: "Smile Implant Center", displayNameConfirmedBy: "owner@smile" };
+    expect(prep({ clinic: dental, approval: tpl, subject: "self" }).ok).toBe(true);
+    for (const subject of ["dependent", "package", "other"] as const) {
+      expect(prep({ clinic: dental, approval: tpl, subject })).toMatchObject({ ok: false, reason: "clinic_name_unconfirmed" });
+    }
+    const long = "Bright Smile Dental and Family Center of Greater Makati City";
+    const r = prep({ clinic: { ...dental, displayName: long }, approval: tpl });
+    expect(r.ok && r.sms.body.split("\n")[0]).toBe(`Hi Ana, ${long} says a visit is due.`);
+  });
   it("R72: the treatment check can't be switched off by the caller; approved wording is always judged", () => {
     const dental = { ...clinic, vertical: "dental" as const, serviceCategories: ["Root canal"] };
     expect(prep({ clinic: dental, approval: auto("recall-rule:r1", { template: "Hi {first_name}, root canal day!" }) })).toMatchObject({ ok: false, reason: "content" });

@@ -16,11 +16,12 @@ alter table clinics add constraint display_name_confirmation_pair check (
 
 create function reset_display_name_confirmation() returns trigger language plpgsql as $$
 begin
-  if new.name is distinct from old.name then
+  -- A new clinic starts unconfirmed: confirming is its own save, after the name is set.
+  if tg_op = 'INSERT' or new.name is distinct from old.name then
     new.display_name_confirmed_by := null;
     new.display_name_confirmed_at := null;
   end if;
   return new;
 end $$;
-create trigger clinics_display_name_confirmation before update on clinics
+create trigger clinics_display_name_confirmation before insert or update on clinics
   for each row execute function reset_display_name_confirmation();

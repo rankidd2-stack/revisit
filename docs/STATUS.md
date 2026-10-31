@@ -2,7 +2,7 @@
 
 Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit by hand.
 
-**Tests:** 215 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 26
+**Tests:** 218 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 28
 
 ## Needs Patrick
 
@@ -12,8 +12,8 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
    Recommended: Target the week after the prototype ships
 3. **Register the business (DTI) and send one email to DTI Pampanga on free events and announcements**  
    Recommended: Claude drafts the email
-4. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), and keeping an opt-out after an erasure request**  
-   Recommended: One consult covers all three. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up), and erased opt-outs are kept
+4. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, and showing a clinic name that names a treatment ("Smile Implant Center") in texts**  
+   Recommended: One consult covers all four. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, and a treatment-naming clinic name goes out only after the clinic confirms it
 5. **Brand name**  
    Recommended: Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains
 
@@ -71,3 +71,5 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 | G16 | compliance-guard | note | Subject is supplied by the caller; derive it from assets.kind of the event's asset in the loader (Wiring 2) | open |
 | G19 | compliance-guard | note | "aids" now whole-word only; "hearing aids" still blocks (no word rule can tell them apart), accepted as fail-closed | deferred |
 | G22 | compliance-guard | note | "check" and "clean" are wider than Patrick's three words; logged as Claude's reading, small impact | deferred |
+| G32 | compliance-guard | risk | Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login | deferred |
+| G33 | compliance-guard | risk | Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send | open |

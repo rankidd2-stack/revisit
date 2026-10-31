@@ -344,5 +344,12 @@ describe("migration 004: template variables and the clinic name confirmation", (
     expect((await clinicCtx(c)).profile).toMatchObject({ displayName: "Smile Implant Center", displayNameConfirmedBy: "owner" });
     await db.query(`update clinics set name = 'Smile HIV Center' where id = $1`, [c]);
     expect(await one(`select display_name_confirmed_by, display_name_confirmed_at from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null, display_name_confirmed_at: null });
+    // Renaming and confirming in one save still leaves the new name unconfirmed.
+    await db.query(`update clinics set name = 'Smile Rehab Center', display_name_confirmed_by = 'owner', display_name_confirmed_at = now() where id = $1`, [c]);
+    expect(await one(`select display_name_confirmed_by, display_name_confirmed_at from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null, display_name_confirmed_at: null });
+  });
+  it("a new clinic starts unconfirmed even if the insert sets a confirmation", async () => {
+    const c = await id(`insert into clinics (name, vertical, display_name_confirmed_by, display_name_confirmed_at) values ('Manila HIV Center', 'other', 'owner', now()) returning id`);
+    expect(await one(`select display_name_confirmed_by from clinics where id = $1`, [c])).toEqual({ display_name_confirmed_by: null });
   });
 });

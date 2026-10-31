@@ -164,7 +164,7 @@
     }
   ],
   "tests": {
-    "passing": 215,
+    "passing": 218,
     "failing": 0
   },
   "needsPatrick": [
@@ -181,8 +181,8 @@
       "recommendation": "Claude drafts the email"
     },
     {
-      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), and keeping an opt-out after an erasure request",
-      "recommendation": "One consult covers all three. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up), and erased opt-outs are kept"
+      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, and showing a clinic name that names a treatment (\"Smile Implant Center\") in texts",
+      "recommendation": "One consult covers all four. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, and a treatment-naming clinic name goes out only after the clinic confirms it"
     },
     {
       "item": "Brand name",

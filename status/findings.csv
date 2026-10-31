@@ -127,3 +127,13 @@ G20,compliance-guard,risk,SMS rules,"{clinic} filled by the caller is masked; ""
 G21,compliance-guard,risk,SMS rules,"Masked pet or dependent labels (""Lola (dialysis)"") are never checked",fixed
 G22,compliance-guard,note,SMS rules,"""check"" and ""clean"" are wider than Patrick's three words; logged as Claude's reading, small impact",deferred
 R88,reviewer,nit,Decision log,"R70, R71, R60, R66, R67, G20, G21 closed by design: names are derived first words, {clinic} comes from the confirmed clinic record (2026-10-31 rework)",fixed
+R89,reviewer,blocker,SMS rules,"A hyphen or apostrophe inside a name hid a health word from the name check (""Ana-HIV"", ""Lola-dialysis""); each part is now judged",fixed
+R90,reviewer,should-fix,SMS rules,"Names were whole-word only, so ""Pregnant"" or ""Diabetic"" passed; 6+ letter stems now match from a word start, plus common word forms",fixed
+R91,reviewer,should-fix,Send pipeline,{clinic} was cut at 40 characters mid-word; the clinic name now goes out whole,fixed
+R92,reviewer,nit,SMS rules,Look-alike Cyrillic or Greek letters in a Latin name; mixed-script names are refused,fixed
+R93,reviewer,nit,Tests,No test for renaming and confirming the clinic in one save,fixed
+G29,compliance-guard,fail,SMS rules,"Same as R89: hyphenated notes in a name (""Lola-dialysis"") reached the lock screen",fixed
+G30,compliance-guard,risk,SMS rules,Word forms of stems in names (Pregnant); same fix as R90,fixed
+G31,compliance-guard,risk,Privacy,"A confirmed sensitive clinic name went into texts about dependents; now refused there, and whether it may go out at all is on the legal-consult list",fixed
+G32,compliance-guard,risk,Privacy,"Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login",deferred
+G33,compliance-guard,risk,Privacy,"Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send",open

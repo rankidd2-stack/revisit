@@ -117,7 +117,8 @@ export function renderTemplate(template: string, vars: Partial<Record<TemplateVa
   const out = template.replace(/\{(first_name|pet_name|clinic)\}/g, (_, name: TemplateVar) => {
     const v = vars[name];
     if (typeof v !== "string" || !v.trim()) { missing = true; return ""; }
-    return v.replace(/[\r\n\t]+/g, " ").trim().slice(0, 40);
+    // Names are already 20 characters at most; the clinic name goes out whole, as it was confirmed.
+    return v.replace(/[\r\n\t]+/g, " ").trim();
   });
   return missing ? null : out;
 }
@@ -184,12 +185,15 @@ export function prepareSms(a: PrepareArgs): PrepareResult {
   if (nonEmpty(clinic.displayName)) vars.clinic = clinic.displayName;
   const rendered = renderTemplate(approval.template, vars);
   if (rendered === null) return { ok: false, reason: "missing_variable" };
-  if (approval.template.includes("{clinic}") && clinicNameIssues(clinic.displayName!, clinic.vertical).length && !nonEmpty(clinic.displayNameConfirmedBy)) {
+  const aboutSomeoneElse = !ABOUT_CONTACT_OR_PET.has(a.subject);
+  // A clinic name that names a treatment needs a named confirmation, and never goes into a text about
+  // another person, confirmed or not, until the legal consult (DPA s.13).
+  if (approval.template.includes("{clinic}") && clinicNameIssues(clinic.displayName!, clinic.vertical).length
+      && (aboutSomeoneElse || !nonEmpty(clinic.displayNameConfirmedBy))) {
     return { ok: false, reason: "clinic_name_unconfirmed" };
   }
   const text = normalizeForSms(rendered).trim();
   const human = clinic.vertical !== "vet";
-  const aboutSomeoneElse = !ABOUT_CONTACT_OR_PET.has(a.subject);
   const strict = !(clinic.nameTreatmentsAllowed && !aboutSomeoneElse);
   // Every check except treatment words runs on the text as sent.
   const issues = checkContent(text, { kind, vertical: clinic.vertical, nameTreatmentsAllowed: true });

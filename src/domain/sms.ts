@@ -310,22 +310,34 @@ export function cleanFirstName(raw: string | null | undefined): string | null {
   const run = word.replace(/^[^\p{L}]+/u, "").match(/^[\p{L}\p{M}'’-]+/u)?.[0] ?? "";
   const kept = [...run].slice(0, 20).join("").replace(/['’-]+$/u, "");
   if (!/\p{L}/u.test(kept)) return null;
+  // One script per name: a Latin name with a Cyrillic or Greek look-alike letter ("\u041dIV") is refused.
+  const scripts = [/\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Greek}/u].filter((re) => re.test(kept));
+  if (scripts.length > 1) return null;
   return kept.toLowerCase().replace(/(^|[-'’])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase());
 }
 
+// Word forms of default stems that a typed first word could be ("Pregnant Ana", "Diabetic Lolo").
+// Used for names only; texts are judged on stems already.
+const NAME_WORD_FORMS = ["pregnant", "diabetic", "psychiatric", "psychiatry", "psychotic", "psychologist", "autistic", "autism",
+  "abortion", "orthodontic", "cavity", "cavities", "biopsy", "oncology", "depressed", "rehab", "botox"];
+
 /**
- * A cleaned name (one word) judged against the default sensitive list as a whole word, so "Hiv" or
- * "Botox" as a typed first name is caught but "Stephanie" never trips a stem. Clinic categories are
- * not used here: names are not service wording.
+ * A cleaned name judged against the default sensitive list. Each part between hyphens or apostrophes
+ * is its own word ("Lola-Dialysis" is judged as "lola dialysis"). Stems of 6 letters or more match
+ * from a word start ("Diabetic"); shorter stems only as whole words, so "Renalyn" and "Stephanie"
+ * pass; plus common word forms of the short stems. Clinic categories are not used: names are not
+ * service wording.
  */
 export function nameIssues(name: string, vertical: ContentCheckOptions["vertical"]): ContentIssue[] {
   const human = vertical !== "vet";
-  const text = forMatching(name, "joined");
-  const words = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(human ? [...FILIPINO_ROOTS, ...DEFAULT_WHOLE_WORDS] : [])];
+  const text = forMatching(name, "spaced");
+  const words = [...DEFAULT_SENSITIVE[human ? "human" : "vet"], ...(human ? [...FILIPINO_ROOTS, ...DEFAULT_WHOLE_WORDS, ...NAME_WORD_FORMS] : [])];
   const hits = new Set<string>();
   for (const w of words) {
     const t = forMatching(w, "solid");
-    if (t && new RegExp(START + escapeRe(t) + "(?:e?s)?" + END, "u").test(text)) hits.add(w);
+    if (!t) continue;
+    const re = t.length >= 6 && !DEFAULT_WHOLE_WORDS.includes(w) ? START + escapeRe(t) : START + escapeRe(t) + "(?:e?s)?" + END;
+    if (new RegExp(re, "u").test(text)) hits.add(w);
   }
   return [...hits].map((w) => ({ code: "names_treatment" as const, message: `A name in this text reads "${w}"; default texts must not name a treatment (lock-screen privacy).` }));
 }
