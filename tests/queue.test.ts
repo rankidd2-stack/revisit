@@ -19,7 +19,7 @@ const pet = (id: string, label: string, lastOn: string, over: object = {}) => ({
 });
 // Due 2026-11-02 when last visit was 2025-11-02.
 const person = (id: string, name: string, over: Partial<QueueContact> = {}): QueueContact => ({
-  id, fullName: name, mobile: "639171234567", status: "active", muted: false, consent: { service: true },
+  id, fullName: name, mobile: `6391712345${String(id.replace(/\D/g, "")).padStart(2, "0")}`, status: "active", muted: false, consent: { service: true },
   pastSends: [], sentEventKeys: [], assets: [pet(`${id}-p`, "Bantay", "2025-11-02")], ...over,
 });
 const input = (contacts: QueueContact[], over: Partial<QueueInput> = {}): QueueInput => ({
@@ -36,6 +36,7 @@ describe("daily autopilot queue", () => {
     expect(item).toMatchObject({ status: "ready", stepOffsetDays: 0, dueOn: "2026-11-02", subject: "pet" });
     expect(item.sms!.body).toContain("Hi Ana, Bantay is due for a visit at Paw Care.");
     expect(item.sms!.body).toContain("Stop msgs: https://revisit.example/s/c1");
+    expect(item.sms!.mobile).toBe("639171234501");
     expect(isPrepared(item.sms!)).toBe(true);
     expect(q.costCentavos).toBe(item.sms!.segments * 56);
   });
@@ -95,8 +96,46 @@ describe("daily autopilot queue", () => {
   });
 });
 
+describe("queue review fixes (R200-R207)", () => {
+  const nineAm = new Date("2026-11-02T01:00:00Z");
+  it("R200: at quiet hours, two pets of one owner give one deferred text and one for the day after", () => {
+    const owner = person("c1", "Ana Cruz", { assets: [pet("p1", "Bantay", "2025-11-02"), pet("p2", "Muning", "2025-11-02")] });
+    const q = proposeDailyQueue(input([owner]), new Date("2026-11-01T22:00:00Z"));   // 06:00 Manila
+    expect(q.items.map((i) => [i.status, i.heldReason])).toEqual([["later_today", "quiet_hours"], ["next_day", "one_recall_per_day"]]);
+  });
+  it("R201: a text the pipeline will refuse is held now, not promised for the morning", () => {
+    const noReply = { ...clinic, replyPhone: null };
+    const q = proposeDailyQueue(input([person("c1", "Ana Cruz")], { clinic: noReply }), new Date("2026-11-02T13:00:00Z"));   // 21:00
+    expect(q.items[0]).toMatchObject({ status: "held", heldReason: "no_reply_path" });
+  });
+  it("R202: the daily slot goes to the step that has waited longest, whatever the data order", () => {
+    // Bantay is due today; Muning's 14-day follow-up has waited 12 days and drops out of the grace window in 2.
+    for (const assets of [[pet("p1", "Bantay", "2025-11-02"), pet("p2", "Muning", "2025-10-07")], [pet("p2", "Muning", "2025-10-07"), pet("p1", "Bantay", "2025-11-02")]]) {
+      const q = proposeDailyQueue(input([person("c1", "Ana Cruz", { assets })]), tenAm);
+      expect(q.items.map((i) => [i.assetLabel, i.status])).toEqual([["Muning", "ready"], ["Bantay", "next_day"]]);
+    }
+  });
+  it("R207: one recall text per mobile per day, even across two contact records", () => {
+    const a = person("c1", "Ana Cruz");
+    const b = { ...person("c2", "Ana C."), mobile: a.mobile };
+    const q = proposeDailyQueue(input([a, b]), nineAm);
+    expect(q.ready).toBe(1);
+    expect(q.items.find((i) => i.status !== "ready")).toMatchObject({ status: "next_day", heldReason: "one_recall_per_day" });
+  });
+  it("two rules due on the same pet the same day: one text, the other tomorrow", () => {
+    const deworm = { ...rule, id: "r2", serviceCategory: "Deworming", intervalDays: 90 };
+    const both = pet("p1", "Bantay", "2025-11-02", { visits: [{ serviceCategory: "Rabies vaccine", on: "2025-11-02" }, { serviceCategory: "Deworming", on: "2026-08-04" }] });
+    const q = proposeDailyQueue(input([person("c1", "Ana Cruz", { assets: [both] })], { rules: [rule, deworm] }), tenAm);
+    expect(q.items.map((i) => i.status).sort()).toEqual(["next_day", "ready"]);
+  });
+  it("a step sent in an earlier cycle doesn't block the new cycle", () => {
+    const q = proposeDailyQueue(input([person("c1", "A", { assets: [pet("p", "B", "2025-11-02", { stepsSent: { "r1:2025-11-02": [-7, 0, 14, 60] } })] })]), tenAm);
+    expect(q.ready).toBe(1);
+  });
+});
+
 describe("bookings recovered (the money number)", () => {
-  const sent = (contactId: string, iso: string) => ({ contactId, sentAt: new Date(iso) });
+  const sent = (contactId: string, iso: string, kind: "recall" | "marketing" | "reminder" | "feedback" = "recall") => ({ contactId, sentAt: new Date(iso), kind });
   it("counts bookings this month that followed a text within 30 days, once each", () => {
     const texts = [sent("a", "2026-10-20T02:00:00Z"), sent("a", "2026-10-25T02:00:00Z"), sent("b", "2026-11-01T02:00:00Z")];
     const r = recoveredInMonth(texts, [
@@ -113,6 +152,14 @@ describe("bookings recovered (the money number)", () => {
       { contactId: "b", on: "2026-11-09", valueCentavos: 1 },   // day before the text
       { contactId: "b", on: "2026-12-01", valueCentavos: 1 },   // next month
     ], "2026-11")).toEqual({ bookings: 0, valueCentavos: 0 });
+  });
+  it("R204: reminders and feedback texts never count; day 30 counts, day 31 does not", () => {
+    const b = (on: string) => [{ contactId: "a", on, valueCentavos: 1 }];
+    expect(recoveredInMonth([sent("a", "2026-11-01T02:00:00Z", "reminder")], b("2026-11-02"), "2026-11").bookings).toBe(0);
+    expect(recoveredInMonth([sent("a", "2026-11-01T02:00:00Z", "feedback")], b("2026-11-02"), "2026-11").bookings).toBe(0);
+    expect(recoveredInMonth([sent("a", "2026-11-01T02:00:00Z", "marketing")], b("2026-11-02"), "2026-11").bookings).toBe(1);
+    expect(recoveredInMonth([sent("a", "2026-10-15T02:00:00Z")], b("2026-11-14"), "2026-11").bookings).toBe(1);
+    expect(recoveredInMonth([sent("a", "2026-10-15T02:00:00Z")], b("2026-11-15"), "2026-11").bookings).toBe(0);
   });
   it("reads the text day on the Manila calendar", () => {
     // 17:00 UTC Oct 31 is 01:00 Nov 1 in Manila, so a Nov 1 booking is not before the text.

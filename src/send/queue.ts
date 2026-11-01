@@ -65,7 +65,7 @@ export interface QueueItem {
   status: QueueStatus;
   sms: PreparedSms | null;      // set when ready
   /** Why it is not ready: a pipeline reason, or "one_recall_per_day" for a second asset of the same contact. */
-  heldReason: string | null;
+  heldReason: HeldReason | null;
   deferUntil: Date | null;
   costCentavos: number;
 }
@@ -94,17 +94,22 @@ function anyLastVisit(c: QueueContact): string | null {
   return latest;
 }
 
+interface Candidate { base: Omit<QueueItem, "status" | "sms" | "heldReason" | "deferUntil" | "costCentavos">; result: PrepareResult; slot: string; stepOn: string }
+
+/**
+ * Queue texts are previews. A `PreparedSms` here reflects the moment the queue was built; the send
+ * step must prepare every text again at send time, so mutes, sync and quiet hours are current.
+ */
 export function proposeDailyQueue(input: QueueInput, now: Date): DailyQueue {
   const today = manilaDate(now);
-  const items: QueueItem[] = [];
   const rules = input.rules.filter((r) => r.approvedBy.trim() !== "");
+  const candidates: Candidate[] = [];
 
   for (const c of input.contacts) {
     const state = {
       status: c.status, muted: c.muted, hasMobile: !!c.mobile, consent: c.consent,
       lastVisitOn: anyLastVisit(c), pastSends: c.pastSends, mobile: c.mobile,
     };
-    let readyForContact = false;
     for (const asset of c.assets) {
       if (!asset.active) continue;
       for (const rule of rules) {
@@ -116,8 +121,8 @@ export function proposeDailyQueue(input: QueueInput, now: Date): DailyQueue {
         }, today);
         if (decision.action !== "send") continue;
 
-        const result: PrepareResult = prepareSms({
-          clinic: input.clinic, contact: state, policy: input.policy, now,
+        const prepare = (at: Date) => prepareSms({
+          clinic: input.clinic, contact: state, policy: input.policy, now: at,
           approval: { type: "automation", automationId: `recall-rule:${rule.id}`, approvedBy: rule.approvedBy, template: rule.template },
           event: { type: "recall", assetId: asset.id, ruleId: rule.id, dueOn: decision.dueOn, stepOffsetDays: decision.stepOffsetDays },
           subject: asset.kind,
@@ -125,29 +130,50 @@ export function proposeDailyQueue(input: QueueInput, now: Date): DailyQueue {
           names: { contact: c.fullName, asset: asset.kind === "self" ? null : asset.label },
           stopUrl: input.stopUrl(c.id), stopLinkHost: input.stopLinkHost,
         });
-
-        const base = {
-          contactId: c.id, contactName: c.fullName, assetId: asset.id, assetLabel: asset.label, subject: asset.kind,
-          ruleId: rule.id, serviceCategory: rule.serviceCategory, dueOn: decision.dueOn,
-          stepOffsetDays: decision.stepOffsetDays, stepIndex: decision.stepIndex,
-        };
-        if (result.ok) {
-          // One recall text per contact per day: a second pet or child waits for tomorrow's queue.
-          if (readyForContact) {
-            items.push({ ...base, status: "next_day", sms: null, heldReason: "one_recall_per_day", deferUntil: null, costCentavos: 0 });
-          } else {
-            readyForContact = true;
-            items.push({ ...base, status: "ready", sms: result.sms, heldReason: null, deferUntil: null,
-              costCentavos: smsCostCentavos(result.sms.body, input.centavosPerSegment) });
-          }
-        } else if (result.reason === "quiet_hours") {
-          const later = result.deferUntil && manilaDate(result.deferUntil) === today;
-          items.push({ ...base, status: later ? "later_today" : "next_day", sms: null, heldReason: "quiet_hours",
-            deferUntil: result.deferUntil ?? null, costCentavos: 0 });
-        } else {
-          items.push({ ...base, status: "held", sms: null, heldReason: result.reason, deferUntil: null, costCentavos: 0 });
+        let result = prepare(now);
+        // The gate checks quiet hours before the rest, so look again at the time the text would go:
+        // a text that will be refused then is held now, not promised for later.
+        if (!result.ok && result.reason === "quiet_hours" && result.deferUntil) {
+          const later = prepare(result.deferUntil);
+          if (!later.ok) result = later;
         }
+        candidates.push({
+          base: {
+            contactId: c.id, contactName: c.fullName, assetId: asset.id, assetLabel: asset.label, subject: asset.kind,
+            ruleId: rule.id, serviceCategory: rule.serviceCategory, dueOn: decision.dueOn,
+            stepOffsetDays: decision.stepOffsetDays, stepIndex: decision.stepIndex,
+          },
+          result,
+          slot: c.mobile ?? `contact:${c.id}`,
+          stepOn: addDays(decision.dueOn, decision.stepOffsetDays),
+        });
       }
+    }
+  }
+
+  // One recall text per mobile per day. The slot goes to the step that has waited longest (closest to
+  // dropping out of the grace window); the others wait for tomorrow's queue.
+  const goes = (r: PrepareResult) => r.ok || r.reason === "quiet_hours";
+  const order = [...candidates].sort((a, b) => a.stepOn.localeCompare(b.stepOn) || a.base.contactId.localeCompare(b.base.contactId)
+    || a.base.assetId.localeCompare(b.base.assetId) || a.base.ruleId.localeCompare(b.base.ruleId));
+  const taken = new Set<string>();
+  const items: QueueItem[] = [];
+  for (const { base, result, slot } of order) {
+    if (goes(result) && taken.has(slot)) {
+      items.push({ ...base, status: "next_day", sms: null, heldReason: "one_recall_per_day", deferUntil: null, costCentavos: 0 });
+      continue;
+    }
+    if (result.ok) {
+      taken.add(slot);
+      items.push({ ...base, status: "ready", sms: result.sms, heldReason: null, deferUntil: null,
+        costCentavos: smsCostCentavos(result.sms.body, input.centavosPerSegment) });
+    } else if (result.reason === "quiet_hours") {
+      taken.add(slot);
+      const later = result.deferUntil && manilaDate(result.deferUntil) === today;
+      items.push({ ...base, status: later ? "later_today" : "next_day", sms: null, heldReason: "quiet_hours",
+        deferUntil: result.deferUntil ?? null, costCentavos: 0 });
+    } else {
+      items.push({ ...base, status: "held", sms: null, heldReason: result.reason, deferUntil: null, costCentavos: 0 });
     }
   }
 
@@ -162,10 +188,12 @@ export function proposeDailyQueue(input: QueueInput, now: Date): DailyQueue {
   };
 }
 
-/** Plain words for every reason a text is held back, for the console. */
-export const HELD_REASON_TEXT: Record<string, string> = {
+export type HeldReason = Extract<PrepareResult, { ok: false }>["reason"] | "one_recall_per_day";
+
+/** Plain words for every reason a text is held back, for the console. Typed so a new reason can't go unexplained. */
+export const HELD_REASON_TEXT: Record<HeldReason, string> = {
   one_recall_per_day: "One recall text per person per day. This one goes tomorrow.",
-  quiet_hours: "Quiet hours. Waits until 8 AM.",
+  quiet_hours: "Quiet hours. Waits until the morning.",
   inactive_status: "Marked moved, deceased or do not contact.",
   muted: "Asked to stop texts.",
   no_mobile: "No mobile number on file.",

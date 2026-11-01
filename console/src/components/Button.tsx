@@ -11,7 +11,7 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 /** One primary per view, labelled with a verb (and a count when there is one). */
 export function Button({ variant = "secondary", size = "md", icon, children, className = "", ...rest }: Props) {
   return (
-    <button className={`btn btn-${variant} btn-${size} ${className}`} {...rest}>
+    <button className={`btn btn-${variant} btn-${size} ${size === "md" ? "body-strong" : "label"} ${className}`} {...rest}>
       {icon}
       <span>{children}</span>
     </button>

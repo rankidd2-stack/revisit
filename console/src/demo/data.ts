@@ -16,7 +16,8 @@ export interface DemoClinic {
   history: { texts: SentText[]; bookings: Booking[] };
 }
 
-const mobile = (n: number) => `6391700${String(n).padStart(5, "0")}`;
+// 0900 is not an assigned PH mobile prefix, so no sample number reaches a real person.
+const mobile = (n: number) => `63900${String(n).padStart(7, "0")}`;
 
 function contact(id: string, fullName: string, assets: QueueAsset[], over: Partial<QueueContact> = {}): QueueContact {
   return { id, fullName, mobile: mobile(Number(id.replace(/\D/g, "")) || 1), status: "active", muted: false,
@@ -40,12 +41,12 @@ function history(today: string, prefix: string, valueCentavos: number, thisMonth
   const day = Math.max(1, Number(today.slice(8, 10)));
   for (let i = 0; i < thisMonth; i++) {
     const on = addDays(firstOfMonth, Math.min(day - 1, i % day));
-    texts.push({ contactId: `${prefix}h${i}`, sentAt: new Date(`${addDays(on, -3)}T02:00:00Z`) });
+    texts.push({ contactId: `${prefix}h${i}`, sentAt: new Date(`${addDays(on, -3)}T02:00:00Z`), kind: "recall" });
     bookings.push({ contactId: `${prefix}h${i}`, on, valueCentavos });
   }
   for (let i = 0; i < lastMonth; i++) {
     const on = addDays(prevMonthDay, i % 15);
-    texts.push({ contactId: `${prefix}l${i}`, sentAt: new Date(`${addDays(on, -2)}T02:00:00Z`) });
+    texts.push({ contactId: `${prefix}l${i}`, sentAt: new Date(`${addDays(on, -2)}T02:00:00Z`), kind: "recall" });
     bookings.push({ contactId: `${prefix}l${i}`, on, valueCentavos });
   }
   return { texts, bookings };
@@ -115,7 +116,7 @@ export function demoClinics(today: string): Record<Vertical, DemoClinic> {
     contact("v14", "Tess Ramos", [asset("v14a", "pet", "Oreo", r(0))], { mobile: null }),
   ];
 
-  const clinicBase = { senderNameApproved: true, nameTreatmentsAllowed: false, displayNameConfirmedBy: null, replyPhone: "0917 555 0142" };
+  const clinicBase = { senderNameApproved: true, nameTreatmentsAllowed: false, displayNameConfirmedBy: null, replyPhone: "0900 000 0000" };
   return {
     dental: {
       vertical: "dental", name: "Smile Studio Dental", serviceLabel: "cleanings", visitValueCentavos: 150000,
