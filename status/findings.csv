@@ -224,3 +224,5 @@ G50,compliance-guard,note,Send pipeline,"Back-to-back recall texts after a visit
 R124,reviewer,nit,Database,"A NULL in a rule's steps let any step through the insert trigger; check is now NULL-safe",fixed
 R125,reviewer,nit,Send pipeline,"Send writer must insert the queued sends row before calling the provider, then update status, so a refused insert never leaves an unlogged text",deferred
 R126,reviewer,nit,Tests,"No test that migration 006 refuses to apply over a pre-006 recall row (compliance-guard confirmed it by probe)",deferred
+R127,reviewer,nit,Send pipeline,"7-day gap also spaces steps of one rule set closer than 7 days; rule editor should warn (with G45)",deferred
+R128,reviewer,nit,Send pipeline,"Short-interval services can lose the next cycle's heads-up step after a real visit soon after a text; accepted (fewer texts)",deferred

@@ -235,3 +235,4 @@ Integrated the parked `claude/upbeat-turing-5echdr` onto main and built the 2026
 - `prepareFromDb` returns `recallCycle` for the send writer to store. Deferred: R120 (split the success type when the writer lands), R121 (the app connects as a role that does not own the tables; deployment item).
 - G49 (how long the send log keeps a dependent's visit date after the dependent's record is deleted) joins the legal-consult item.
 - Reviewer: PASS (round 1), PASS (round 2, R123 fixed after it). Compliance-guard: PASS WITH RISKS (round 1), PASS (round 2). Deferred to the send writer milestone: R125 (insert the queued sends row before calling the provider), R126 (test that 006 refuses old rows; confirmed by probe).
+- Round 3: reviewer PASS. Deferred R127 (rule editor warns about steps under 7 days apart) and R128 (short intervals may lose a heads-up; fewer texts, accepted).
