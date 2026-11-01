@@ -58,8 +58,8 @@
         },
         {
           "name": "Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets",
-          "state": "parked",
-          "note": "Parked 2026-10-31 after three review rounds (reviewer FAIL, compliance-guard PASS WITH RISKS). Branch claude/upbeat-turing-5echdr. Open findings: R111 (blocker), R112, R113, R115, G43, G44. Next run follows the 2026-10-31 parked-branch direction in docs/DECISIONS.md: store cycle_visit_on and service on each recall send, make a recall rule's service immutable. Required before any real send."
+          "state": "done",
+          "note": "Merged 2026-11-01. Migration 006: recall sends store their cycle (visit date and service). A recall rule's service, and the name of a service under a rule, can never change. At least 7 days between recall texts per asset and service. Reviewer PASS, compliance-guard PASS; 290 tests."
         },
         {
           "name": "Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",
@@ -171,7 +171,7 @@
     }
   ],
   "tests": {
-    "passing": 242,
+    "passing": 290,
     "failing": 0
   },
   "needsPatrick": [
@@ -192,8 +192,8 @@
       "recommendation": "Claude drafts the email"
     },
     {
-      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), including whether even a generic \"a visit is due\" is too revealing, keeping an opt-out after an erasure request, showing a clinic name that names a treatment (\"Smile Implant Center\") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)",
-      "recommendation": "One consult covers all five. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, and the word list stays frozen"
+      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), including whether even a generic \"a visit is due\" is too revealing, keeping an opt-out after an erasure request, showing a clinic name that names a treatment (\"Smile Implant Center\") in texts, whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass), and how long the send log may keep a dependent's visit date and service after the dependent's record is deleted (G49)",
+      "recommendation": "One consult covers all six. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, the word list stays frozen, and the send log keeps a deleted dependent's visit date and service only for the clinic's audit period, then clears them"
     },
     {
       "item": "Brand name",
