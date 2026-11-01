@@ -224,3 +224,13 @@ Nothing here sends to patients yet, so the open findings are not live.
 - The built console is published as a private claude.ai artifact ("Revisit Demo Console") for Patrick to open on his phone and show clinics. It holds only the static build; nothing sends.
 - Merged branch `claude/console-daily-queue` could not be deleted from origin from this session (the remote hung up on delete; pushing main worked). It is fully merged, so step 2 of the next run ignores it; delete it when possible.
 - OPEN for Patrick (needsPatrick): real AI (paid API account) or labelled sample drafts for the next two demo milestones. Recommended: sample drafts first.
+
+## 2026-11-01 -- Database wiring 2 finished on the redesign (scheduled run)
+Integrated the parked `claude/upbeat-turing-5echdr` onto main and built the 2026-10-31 direction on `claude/upbeat-turing-8z098l`:
+- Migration 006: every recall send stores `cycle_visit_on` (the last visit its step was computed from) and `service_category_id`. A trigger checks both against the rule when the row is written (same service, due date = visit + interval, an active approved rule, one of its steps); neither can change afterwards. A send counts toward a cycle only when it recorded the asset's current last visit. No date comparisons decide cycle membership any more (closes R111, R112, R113, G43, G44).
+- A recall rule's service can never change, and a service that has a recall rule can't be renamed (sync matches services by name), so an approval and its send history can't drift to another treatment (G43, R118). A different service is a new rule or a new row.
+- One shared `RECALL_GRACE_DAYS` (R115).
+- Deviation from the direction, Claude's call: no legacy path for rows written before 006. The cycle check is VALID on every row, so a database holding an old recall send fails the migration loudly. No recall send has ever been written outside tests, and a NOT VALID check would have blocked status updates and pet deletions on such rows (R116, R117, G47, G48).
+- Same step, same asset and service, at most once in 30 days across cycles (`RECALL_STEP_COOLDOWN_DAYS`), so a clinic correcting a visit date by a day never repeats "your visit is due" (G46). Only ever fewer texts; it is not a cycle-membership rule.
+- `prepareFromDb` returns `recallCycle` for the send writer to store. Deferred: R120 (split the success type when the writer lands), R121 (the app connects as a role that does not own the tables; deployment item).
+- G49 (how long the send log keeps a dependent's visit date after the dependent's record is deleted) joins the legal-consult item.

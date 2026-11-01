@@ -200,3 +200,20 @@ R114,reviewer,nit,Operations,"Migration 005 has no cleanup step for existing dup
 R115,reviewer,nit,Send pipeline,"nextRecallStep still takes an optional graceDays; make it one shared constant",open
 G16,compliance-guard,note,Privacy,"Subject derived from assets.kind in loadSendTarget (closed with G33 on the parked branch)",fixed
 G25,compliance-guard,note,Privacy,"Recall queue skips inactive assets (closed with G33 on the parked branch)",fixed
+R111,reviewer,blocker,Send pipeline,"Late-entered visit before the old due date: old texts counted in the new cycle; closed by design, each recall send records its cycle visit (migration 006)",fixed
+R112,reviewer,should-fix,Send pipeline,"Past send's service read from the rule; sends now store their service and a rule's service cannot change",fixed
+R113,reviewer,should-fix,Tests,"Tests for a late-entered earlier visit and a rule moved to another service",fixed
+R115,reviewer,nit,Send pipeline,"One shared RECALL_GRACE_DAYS; the per-call graceDays option is gone",fixed
+G43,compliance-guard,risk,Send pipeline,"Rule moved to another service: recall_rules.service_category_id is now immutable and each send stores its service",fixed
+G44,compliance-guard,note,Send pipeline,"Old-cycle text counted as the new cycle's step: closed by exact cycle match",fixed
+R116,reviewer,should-fix,Database,"NOT VALID cycle check still enforced on UPDATE, blocking status updates and asset deletion for pre-006 rows; check is now VALID and the legacy path removed",fixed
+R117,reviewer,should-fix,Send pipeline,"Legacy pre-006 rows ignored after a rule replacement or interval edit; legacy path removed (no real recall sends ever existed)",fixed
+R118,reviewer,should-fix,Database,"Renaming a service moved an approved rule and its history to another treatment; a service with a recall rule cannot be renamed",fixed
+R119,reviewer,nit,Database,"Recall insert did not check the rule is active and approved or the step is one of its steps",fixed
+R120,reviewer,nit,Send pipeline,"recallCycle typed nullable on a recall success; split the type when the send writer lands (the database refuses a null cycle anyway)",deferred
+R121,reviewer,nit,Deployment,"Table owner or superuser can disable the triggers; the app must connect as a non-owner role",deferred
+R122,reviewer,should-fix,Tests,"Tests for validated check, asset delete with sends, completed appointment as cycle visit, interval edit before write, step not in rule",fixed
+G46,compliance-guard,risk,Send pipeline,"A corrected visit date could repeat the step just sent; the same step for the same asset and service is never sent twice within 30 days",fixed
+G47,compliance-guard,risk,Privacy,"Pre-006 recall rows blocked deleting a pet or dependent; check is now VALID, no such rows can exist",fixed
+G48,compliance-guard,note,Send pipeline,"Legacy rows counted only under their own rule; legacy path removed",fixed
+G49,compliance-guard,note,Privacy,"Send log keeps a dependent's visit date and service after the dependent is deleted; retention period for the legal consult",open
