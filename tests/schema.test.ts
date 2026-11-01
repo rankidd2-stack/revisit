@@ -35,11 +35,11 @@ describe("schema guarantees", () => {
   });
 
   it("logs each recall step once per contact", async () => {
-    const ins = `insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by)
-                 values ($1, $2, $3, 'recall', $4, $5, '2026-11-01', 0, 'sms', 'automation:1')`;
+    const ins = `insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, cycle_visit_on, service_category_id)
+                 values ($1, $2, $3, 'recall', $4, $5, '2026-11-01', 0, 'sms', 'automation:1', '2025-11-01', $6)`;
     const key = `recall:${asset}:${rule}:2026-11-01:0`;
-    await db.query(ins, [clinicA, contact, key, asset, rule]);
-    await rejects(ins, [clinicA, contact, key, asset, rule]);
+    await db.query(ins, [clinicA, contact, key, asset, rule, svc]);
+    await rejects(ins, [clinicA, contact, key, asset, rule, svc]);
   });
 
   it("refuses a recall send without its event details or approval", async () => {

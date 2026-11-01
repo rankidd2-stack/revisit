@@ -271,8 +271,9 @@ describe("database rows drive the send pipeline", () => {
   it("a loaded recall goes out once, with the approved wording and the footer", async () => {
     const r = await prepare(ana, recallEvent(), await loadRecallRuleApproval(db, clinicA, rule));
     expect(r.ok && r.sms.body).toBe("Hi Ana, Bantay is due for a visit.\nReply: 0917 555 0000\nStop msgs: https://revisit.example/s/x1");
-    await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, status, sent_at)
-                    values ($1, $2, $3, 'recall', $4, $5, '2026-10-30', 0, 'sms', 'admin', 'sent', $6)`,
+    await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, status, sent_at, cycle_visit_on, service_category_id)
+                    select $1, $2, $3, 'recall', $4, $5, '2026-10-30', 0, 'sms', 'admin', 'sent', $6, date '2026-10-30' - interval_days, service_category_id
+                      from recall_rules where id = $5`,
       [clinicA, ana, r.ok ? r.sms.eventKey : "", bantay, rule, now.toISOString()]);
     expect(await prepare(ana, recallEvent(), await loadRecallRuleApproval(db, clinicA, rule))).toMatchObject({ ok: false, reason: "already_sent" });
   });

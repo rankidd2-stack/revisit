@@ -11,10 +11,14 @@ export interface RecallInput {
   rule: RecallRule;
   lastVisitOn: string | null;          // YYYY-MM-DD, latest visit for this service category
   hasUpcomingAppointment: boolean;     // booked or confirmed, in the future
-  stepsAlreadySent: number[];          // offsets already sent for the current cycle (due date)
-  /** A step that was missed by more than this many days is skipped, never sent late. Default 14. */
-  graceDays?: number;
+  stepsAlreadySent: number[];          // offsets already sent for the current cycle (this last visit)
 }
+
+/**
+ * A step missed by more than this many days is skipped, never sent late. One constant, so the daily
+ * queue and the send-time recheck can never disagree (R108, R115).
+ */
+export const RECALL_GRACE_DAYS = 14;
 
 export type RecallDecision =
   | { action: "none"; reason: "no_visit" | "booked" | "not_yet" | "sequence_done" | "lapsed" }
@@ -28,7 +32,7 @@ export type RecallDecision =
  */
 export function nextRecallStep(input: RecallInput, today: string): RecallDecision {
   const { rule, lastVisitOn, hasUpcomingAppointment, stepsAlreadySent } = input;
-  const grace = input.graceDays ?? 14;
+  const grace = RECALL_GRACE_DAYS;
   if (!lastVisitOn) return { action: "none", reason: "no_visit" };
   if (hasUpcomingAppointment) return { action: "none", reason: "booked" };
 

@@ -184,6 +184,26 @@ Built the "Direction for the parked branch" entry instead of patching the matche
 - Database wiring 1 merged to main. Still required before any real send (Database wiring 2): derive the subject from `assets.kind` and skip inactive assets in the recall loader (G33).
 
 
+## 2026-10-31 -- Database wiring 2: three review rounds, branch parked (scheduled run)
+Built on `claude/upbeat-turing-5echdr`: `loadSendTarget` (subject from assets.kind of the event's own asset, G16/G33),
+`loadRecallQueue` (skips inactive assets and non-active contacts, G25), `prepareFromDb` (every input from rows).
+Claude's calls, all fail-closed:
+- Campaign subject is "other" (strict) when the contact has any dependent, package or other asset, active or not; and a "self" event for such a contact is strict too, because the import only guesses who holds a shared number (G36). Lifted per household once the console lets the clinic confirm the holder.
+- Only a pet's label fills {pet_name}; a dependent's name never goes into a text to a family number.
+- An inactive asset blocks recall, reminder and feedback alike (asset_inactive).
+- A booked or confirmed appointment for any service, from the start of today in Manila, stops a recall.
+- A recall's timing is rechecked against the database at send time (recall_not_due), so a stale or hand-built event can't send "your visit is due" (R97, G37).
+- One active recall rule per service (migration 005); sends under any rule for the service count (R107).
+Reviewer: PASS, FAIL (R106), FAIL (R111). Compliance-guard: PASS WITH RISKS all three rounds.
+
+Step back (AUTOPILOT step 5): rounds 2 and 3 each opened a new hole in the same place, deciding after the fact which
+past sends belong to the current cycle (R98, R106, R111, R112, G43, G44). The approach is wrong, not the details.
+Direction for the next run (Claude, code structure):
+1. Migration 006: add `sends.cycle_visit_on date` and `sends.service_category_id uuid`, required for kind = 'recall' on new rows (NOT VALID for old rows). The send writer fills both from the values the step was computed from.
+2. A send counts toward a cycle only when its `service_category_id` and `cycle_visit_on` equal the asset's current service and last visit. No date comparisons, no reading the rule's current service. Old rows without these columns count only if their event key matches exactly (fewer texts, never more).
+3. Make `recall_rules.service_category_id` immutable once a rule exists (a replacement is a new rule), closing G43/R112.
+4. One grace constant shared by the queue and the recheck (R115). Tests: R113 cases.
+Nothing here sends to patients yet, so the open findings are not live.
 ## 2026-11-01 -- Demo console before Phase 1 finishes (Patrick)
 - Patrick (live session, "we're just getting to the demo right? Then what's stopping you?"): build the clickable demo console now. This run skips AUTOPILOT step 2 for the parked `claude/upbeat-turing-5echdr` (Database wiring 2); the next run picks it up as usual. The demo does not depend on it: it runs on sample data and the rules already on main.
 - Phase 1 milestones still to do (Wiring 2, real Sheet fetcher, scheduled runner, PH market pack) stay required before any real send. The demo sends nothing.
@@ -204,3 +224,15 @@ Built the "Direction for the parked branch" entry instead of patching the matche
 - The built console is published as a private claude.ai artifact ("Revisit Demo Console") for Patrick to open on his phone and show clinics. It holds only the static build; nothing sends.
 - Merged branch `claude/console-daily-queue` could not be deleted from origin from this session (the remote hung up on delete; pushing main worked). It is fully merged, so step 2 of the next run ignores it; delete it when possible.
 - OPEN for Patrick (needsPatrick): real AI (paid API account) or labelled sample drafts for the next two demo milestones. Recommended: sample drafts first.
+
+## 2026-11-01 -- Database wiring 2 finished on the redesign (scheduled run)
+Integrated the parked `claude/upbeat-turing-5echdr` onto main and built the 2026-10-31 direction on `claude/upbeat-turing-8z098l`:
+- Migration 006: every recall send stores `cycle_visit_on` (the last visit its step was computed from) and `service_category_id`. A trigger checks both against the rule when the row is written (same service, due date = visit + interval, an active approved rule, one of its steps); neither can change afterwards. A send counts toward a cycle only when it recorded the asset's current last visit. No date comparisons decide cycle membership any more (closes R111, R112, R113, G43, G44).
+- A recall rule's service can never change, and a service that has a recall rule can't be renamed (sync matches services by name), so an approval and its send history can't drift to another treatment (G43, R118). A different service is a new rule or a new row.
+- One shared `RECALL_GRACE_DAYS` (R115).
+- Deviation from the direction, Claude's call: no legacy path for rows written before 006. The cycle check is VALID on every row, so a database holding an old recall send fails the migration loudly. No recall send has ever been written outside tests, and a NOT VALID check would have blocked status updates and pet deletions on such rows (R116, R117, G47, G48).
+- Across cycles, per asset and service: at least 7 days between two recall texts (`RECALL_MIN_GAP_DAYS`), and within 30 days no step at or before the furthest step already sent (`RECALL_STEP_COOLDOWN_DAYS`). A clinic correcting a visit date never repeats "your visit is due" or steps back to "due soon" (G46, G50, R123). Only ever fewer texts; these are send-spacing rules, not cycle membership.
+- `prepareFromDb` returns `recallCycle` for the send writer to store. Deferred: R120 (split the success type when the writer lands), R121 (the app connects as a role that does not own the tables; deployment item).
+- G49 (how long the send log keeps a dependent's visit date after the dependent's record is deleted) joins the legal-consult item.
+- Reviewer: PASS (round 1), PASS (round 2, R123 fixed after it). Compliance-guard: PASS WITH RISKS (round 1), PASS (round 2). Deferred to the send writer milestone: R125 (insert the queued sends row before calling the provider), R126 (test that 006 refuses old rows; confirmed by probe).
+- Round 3: reviewer PASS. Deferred R127 (rule editor warns about steps under 7 days apart) and R128 (short intervals may lose a heads-up; fewer texts, accepted).

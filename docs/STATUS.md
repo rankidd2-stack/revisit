@@ -2,7 +2,7 @@
 
 Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit by hand.
 
-**Tests:** 242 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 41
+**Tests:** 290 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 55
 
 ## Needs Patrick
 
@@ -14,8 +14,8 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
    Recommended: Target the week after the prototype ships
 4. **Register the business (DTI) and send one email to DTI Pampanga on free events and announcements**  
    Recommended: Claude drafts the email
-5. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, showing a clinic name that names a treatment ("Smile Implant Center") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)**  
-   Recommended: One consult covers all five. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, and the word list stays frozen
+5. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), including whether even a generic "a visit is due" is too revealing, keeping an opt-out after an erasure request, showing a clinic name that names a treatment ("Smile Implant Center") in texts, whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass), and how long the send log may keep a dependent's visit date and service after the dependent's record is deleted (G49)**  
+   Recommended: One consult covers all six. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, the word list stays frozen, and the send log keeps a deleted dependent's visit date and service only for the clinic's audit period, then clears them
 6. **Brand name**  
    Recommended: Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains
 
@@ -24,7 +24,7 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
 | Phase | State | Milestones done |
 | --- | --- | --- |
 | 0. Plan and setup | Done | 3 of 3 |
-| 1. Foundation | In progress | 7 of 11 |
+| 1. Foundation | In progress | 8 of 11 |
 | 2. AI console prototype (sales demo) | In progress | 1 of 4 |
 | 3. Sending live | To do | 0 of 4 |
 | 4. Paid pilot | To do | 0 of 4 |
@@ -39,7 +39,7 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
 - **Done:** Semaphore SMS client and SMS cost counter
 - **Done:** Database wiring 1: load send-gate inputs from Postgres (clinic, contact, consent, mutes, sends, sync health, approvals)
 - **Done:** Sync apply: imported rows to database, sync run log, Sheet CSV fetch (injected fetcher)
-- **To do:** Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets
+- **Done:** Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets
 - **To do:** Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check
 - **To do:** Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock
 - **To do:** Philippines market pack split
@@ -62,7 +62,6 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
 | R80 | reviewer | nit | 3 to 5 queries per row in one transaction; batch lookups in the runner milestone | deferred |
 | G23 | compliance-guard | risk | SyncOutcome.result carries patient rows; the scheduled runner must log counts only | deferred |
 | G24 | compliance-guard | nit | A sync with a very high rejection rate still counts as ok; flag it to the clinic in the runner milestone | deferred |
-| G25 | compliance-guard | nit | Visits can attach to a deactivated pet; recall eligibility must keep checking assets.active | deferred |
 | R35 | reviewer | nit | A scheduled campaign stays approved long after its time if the scheduler was down | deferred |
 | R36 | reviewer | should-fix | Caps and same-day rules are not enforced under concurrent senders; lock the contact and re-check at send time. Required before the send pipeline milestone passes | deferred |
 | R37 | reviewer | nit | A stop that only writes a mute does not follow the person to a new number; also append a linked opt-out | deferred |
@@ -71,11 +70,9 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
 | G26 | compliance-guard | risk | Keeping an erased person's opt-out needs a line in the privacy notice, DPA template and erasure reply, plus a retention period | open |
 | G28 | compliance-guard | risk | Imports must never write consent rows, or a re-import could undo a stop | open |
 | R61 | reviewer | nit | A plain space inside a clinic word ("pre natal") is not caught; accepted limit, pinned by a test | deferred |
-| G16 | compliance-guard | note | Subject is supplied by the caller; derive it from assets.kind of the event's asset in the loader (Wiring 2) | open |
 | G19 | compliance-guard | note | "aids" now whole-word only; "hearing aids" still blocks (no word rule can tell them apart), accepted as fail-closed | deferred |
 | G22 | compliance-guard | note | "check" and "clean" are wider than Patrick's three words; logged as Claude's reading, small impact | deferred |
 | G32 | compliance-guard | risk | Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login | deferred |
-| G33 | compliance-guard | risk | Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send | open |
 | R96 | reviewer | nit | Words not on the frozen default list pass in names (Lasik, Thyroid, Stroke, Asthma); known limit of the safety net, for the legal consult | deferred |
 | G35 | compliance-guard | nit | Confirmation does not store which name was confirmed; rename trigger is the safeguard (part of G32) | deferred |
 | R203 | reviewer | should-fix | Steps sent are keyed by a due date derived from the current interval; editing an interval can resend a step. Key by cycle (last visit) in the send pipeline milestone | deferred |
@@ -89,3 +86,20 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
 | G208 | compliance-guard | note | Confirm 0900 is unassigned (NTC numbering plan) before any public demo link | deferred |
 | G209 | compliance-guard | note | With real data the money card must say "recall or marketing text" | deferred |
 | G210 | compliance-guard | note | For live clinics consider "Bookings after a text" instead of "Bookings recovered" (implies causation) | deferred |
+| G38 | compliance-guard | note | One recall template serves self and dependent; "your visit is due" reads as the parent's. Household wording variant for the console/template milestone | deferred |
+| G39 | compliance-guard | note | Reminder target ignores appointment status and time; feedback ignores visit age. Both not_approved today; fix in the reminders milestone (same as R102) | deferred |
+| G40 | compliance-guard | note | prepareSms is still callable with a caller-supplied subject; the send pipeline milestone may not be marked done until only prepareFromDb results can be sent | deferred |
+| G41 | compliance-guard | note | Even generic "a visit is due" to a shared number reveals that a family member gets care; on the legal-consult item | deferred |
+| G45 | compliance-guard | note | Migration 005 fails on existing duplicate active rules; the rule editor should show steps that can never send | deferred |
+| R100 | reviewer | nit | One bad visit date throws the whole clinic's recall queue | deferred |
+| R102 | reviewer | nit | Reminder and feedback targets ignore appointment status and visit age (both not_approved today) | deferred |
+| R104 | reviewer | nit | Two pets due the same day: second text deferred by daily_recall_cap, no merged text | deferred |
+| R114 | reviewer | nit | Migration 005 has no cleanup step for existing duplicate active rules | deferred |
+| R120 | reviewer | nit | recallCycle typed nullable on a recall success; split the type when the send writer lands (the database refuses a null cycle anyway) | deferred |
+| R121 | reviewer | nit | Table owner or superuser can disable the triggers; the app must connect as a non-owner role | deferred |
+| G49 | compliance-guard | note | Send log keeps a dependent's visit date and service after the dependent is deleted; retention period for the legal consult | open |
+| G51 | compliance-guard | note | Go-live runbook: migration 006 before any real recall send; console must explain the service rename lock and offer a new service | deferred |
+| R125 | reviewer | nit | Send writer must insert the queued sends row before calling the provider, then update status, so a refused insert never leaves an unlogged text | deferred |
+| R126 | reviewer | nit | No test that migration 006 refuses to apply over a pre-006 recall row (compliance-guard confirmed it by probe) | deferred |
+| R127 | reviewer | nit | 7-day gap also spaces steps of one rule set closer than 7 days; rule editor should warn (with G45) | deferred |
+| R128 | reviewer | nit | Short-interval services can lose the next cycle's heads-up step after a real visit soon after a text; accepted (fewer texts) | deferred |
