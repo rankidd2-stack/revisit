@@ -1,8 +1,8 @@
 import type { Db } from "./client.js";
 import { loadCampaignApproval, loadClinicContext, loadContact, loadRecallRuleApproval } from "./send-context.js";
 import { loadSendTarget } from "./send-target.js";
-import { checkRecallDue } from "./recall-queue.js";
-import { eventKey, prepareSms, type Approval, type PrepareResult, type SendEvent } from "../send/pipeline.js";
+import { checkRecallDue, type RecallCycle } from "./recall-queue.js";
+import { eventKey, prepareSms, type Approval, type PreparedSms, type PrepareResult, type SendEvent } from "../send/pipeline.js";
 
 /**
  * The database route to a PreparedSms: clinic, contact, approval, subject and names all come from
@@ -18,8 +18,13 @@ export interface PrepareFromDbArgs {
   stopLinkHost: string;
 }
 
+/**
+ * On success, `recallCycle` is what the send writer stores with a recall send (sends.cycle_visit_on
+ * and sends.service_category_id): the values the step was just computed from. Null for other kinds.
+ */
 export type PrepareFromDbResult =
-  | PrepareResult
+  | { ok: true; sms: PreparedSms; recallCycle: RecallCycle | null }
+  | Exclude<PrepareResult, { ok: true }>
   | { ok: false; reason: "clinic_not_found" | "unsupported_timezone" | "contact_not_found" | "event_not_found" | "asset_inactive" | "recall_not_due" };
 
 /** Reminders and feedback have no approval records yet, so they stay unapproved until they do. */
@@ -40,11 +45,12 @@ export async function prepareFromDb(db: Db, a: PrepareFromDbArgs): Promise<Prepa
   if (!target.ok) return target;
   // R97, G37: a recall's timing is not the caller's either. Unless it was already sent (the pipeline
   // says so), the database must give exactly this step for this asset and rule right now.
-  if (a.event.type === "recall" && !contact.sentEventKeys.has(eventKey(a.event))
-      && !(await checkRecallDue(db, a.clinicId, a.contactId, a.event, a.now))) {
-    return { ok: false, reason: "recall_not_due" };
+  let recallCycle: RecallCycle | null = null;
+  if (a.event.type === "recall" && !contact.sentEventKeys.has(eventKey(a.event))) {
+    recallCycle = await checkRecallDue(db, a.clinicId, a.contactId, a.event, a.now);
+    if (!recallCycle) return { ok: false, reason: "recall_not_due" };
   }
-  return prepareSms({
+  const r = prepareSms({
     clinic: clinic.clinic.profile,
     contact: contact.contact,
     policy: clinic.clinic.policy,
@@ -57,4 +63,5 @@ export async function prepareFromDb(db: Db, a: PrepareFromDbArgs): Promise<Prepa
     stopUrl: a.stopUrl,
     stopLinkHost: a.stopLinkHost,
   });
+  return r.ok ? { ...r, recallCycle } : r;
 }

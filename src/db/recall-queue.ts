@@ -1,6 +1,6 @@
 import { isUuid, type Db } from "./client.js";
 import { nextRecallStep } from "../domain/recall.js";
-import { manilaDate } from "../domain/time.js";
+import { addDays, manilaDate } from "../domain/time.js";
 import type { SendEvent } from "../send/pipeline.js";
 
 /**
@@ -11,9 +11,19 @@ import type { SendEvent } from "../send/pipeline.js";
  */
 export type RecallEvent = Extract<SendEvent, { type: "recall" }>;
 
+/**
+ * The cycle a recall step was computed from. The send writer stores it on the sends row
+ * (sends.cycle_visit_on, sends.service_category_id); the database checks it against the rule.
+ */
+export interface RecallCycle {
+  visitOn: string;            // YYYY-MM-DD, the last visit the due date was counted from
+  serviceCategoryId: string;  // the rule's service
+}
+
 export interface RecallItem {
   contactId: string;
   assetId: string;
+  cycle: RecallCycle;
   event: RecallEvent;
 }
 
@@ -62,17 +72,19 @@ async function dueSteps(db: Db, clinicId: string, ruleId: string, r: RuleRow, no
       order by a.contact_id, a.id`,
     [clinicId, r.service_category_id, today, assetId])).rows;
 
-  // Steps already sent in this cycle, under ANY rule for the same service (a replaced or second rule
-  // never restarts the sequence, R107), whatever exact cycle date they carried (a changed interval
-  // never repeats a step, R98). Read from the typed columns the sends table keeps equal to the event
-  // key. Failed sends count too, as in the gate.
-  const sends = (await db.query<{ asset_id: string; step_offset_days: number; sent_on: string; cycle_on: string }>(
-    `select s.asset_id, s.step_offset_days, to_char(s.sent_at at time zone 'Asia/Manila', 'YYYY-MM-DD') as sent_on,
-            to_char(s.cycle_due_on, 'YYYY-MM-DD') as cycle_on
-       from sends s join recall_rules rr on rr.clinic_id = s.clinic_id and rr.id = s.recall_rule_id
-      where s.clinic_id = $1 and s.kind = 'recall' and rr.service_category_id = $2 and s.asset_id is not null
-        and ($3::uuid is null or s.asset_id = $3::uuid)`,
-    [clinicId, r.service_category_id, assetId])).rows;
+  // Recall sends for this service on these assets, with the cycle each one recorded when it was
+  // written (migration 006: the visit the step was computed from, and the rule's service, which can
+  // never change). Sends under ANY rule for the service count, so a replaced rule never restarts a
+  // sequence (R107). Failed sends count too, as in the gate. Rows written before migration 006 have
+  // no recorded cycle; they are kept with their rule and due date and matched on the exact event key.
+  const sends = (await db.query<{ asset_id: string; step_offset_days: number; cycle_visit_on: string | null; legacy_due_on: string | null }>(
+    `select s.asset_id, s.step_offset_days, to_char(s.cycle_visit_on, 'YYYY-MM-DD') as cycle_visit_on,
+            case when s.cycle_visit_on is null and s.recall_rule_id = $3::uuid then to_char(s.cycle_due_on, 'YYYY-MM-DD') end as legacy_due_on
+       from sends s
+      where s.clinic_id = $1 and s.kind = 'recall' and s.asset_id is not null
+        and (s.service_category_id = $2 or (s.service_category_id is null and s.recall_rule_id = $3::uuid))
+        and ($4::uuid is null or s.asset_id = $4::uuid)`,
+    [clinicId, r.service_category_id, ruleId, assetId])).rows;
 
   // A NULL inside step_offsets_days would make an unloggable event; such entries are ignored (R103).
   // A step on or before the visit day itself (interval + offset <= 0) could never be counted as sent
@@ -83,22 +95,26 @@ async function dueSteps(db: Db, clinicId: string, ruleId: string, r: RuleRow, no
   for (const a of assets) {
     if (!a.last_visit) continue;
     if (!ISO_DATE.test(a.last_visit)) throw new Error("Visit date is not YYYY-MM-DD");
-    // A send belongs to this cycle only if both its send date and its cycle date are after the last
-    // visit. A late-synced visit can postdate an old cycle's text; that text's cycle date is before
-    // the visit, so it never closes the new cycle (R106).
-    const sent = sends.filter((s) => s.asset_id === a.asset_id && s.sent_on > a.last_visit! && s.cycle_on > a.last_visit!)
+    // A send belongs to this cycle only if it recorded this exact last visit (R106, R111, G44).
+    // No date comparison: a late-synced visit, earlier or later than the old texts, starts a cycle
+    // that none of the old texts belong to. A pre-006 row counts only if its key is exactly this
+    // cycle's (same rule, due date from this visit and the current interval).
+    const dueOn = addDays(a.last_visit, r.interval_days);
+    const sent = sends.filter((s) => s.asset_id === a.asset_id
+        && (s.cycle_visit_on !== null ? s.cycle_visit_on === a.last_visit : s.legacy_due_on === dueOn))
       .map((s) => s.step_offset_days);
     const d = nextRecallStep({ rule, lastVisitOn: a.last_visit, hasUpcomingAppointment: a.booked, stepsAlreadySent: sent }, today);
     if (d.action !== "send") continue;
     items.push({
       contactId: a.contact_id, assetId: a.asset_id,
+      cycle: { visitOn: a.last_visit, serviceCategoryId: r.service_category_id },
       event: { type: "recall", assetId: a.asset_id, ruleId, dueOn: d.dueOn, stepOffsetDays: d.stepOffsetDays },
     });
   }
   return items;
 }
 
-/** Uses the default grace window (14 days) in both the queue and the send-time recheck (R108). */
+/** The queue and the send-time recheck share dueSteps and RECALL_GRACE_DAYS, so they always agree (R108, R115). */
 export async function loadRecallQueue(db: Db, clinicId: string, ruleId: string, now: Date): Promise<RecallQueueResult> {
   const r = await loadRule(db, clinicId, ruleId);
   if (typeof r === "string") return { ok: false, reason: r };
@@ -109,11 +125,13 @@ export async function loadRecallQueue(db: Db, clinicId: string, ruleId: string, 
  * Send-time recheck (R97, G37): a recall event is sendable only if the database, right now, gives
  * exactly this step for this asset and rule. A queued event that went stale (the patient booked, a
  * visit came in, the rule changed) or a hand-built one with another due date is refused.
+ * Returns the cycle to store with the send, or null when the step is not due.
  */
-export async function checkRecallDue(db: Db, clinicId: string, contactId: string, event: RecallEvent, now: Date): Promise<boolean> {
-  if (!isUuid(event?.assetId)) return false;
+export async function checkRecallDue(db: Db, clinicId: string, contactId: string, event: RecallEvent, now: Date): Promise<RecallCycle | null> {
+  if (!isUuid(event?.assetId)) return null;
   const r = await loadRule(db, clinicId, event.ruleId);
-  if (typeof r === "string") return false;
+  if (typeof r === "string") return null;
   const [due] = await dueSteps(db, clinicId, event.ruleId, r, now, event.assetId);
-  return !!due && due.contactId === contactId && due.event.dueOn === event.dueOn && due.event.stepOffsetDays === event.stepOffsetDays;
+  const same = !!due && due.contactId === contactId && due.event.dueOn === event.dueOn && due.event.stepOffsetDays === event.stepOffsetDays;
+  return same ? due.cycle : null;
 }
