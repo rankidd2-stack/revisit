@@ -183,3 +183,16 @@ Built the "Direction for the parked branch" entry instead of patching the matche
 - Round 3 (reviewer PASS, compliance-guard PASS; 218 tests): names now match 4+ letter stems from a word start ("Oncologist", "Psychology"), except renal, crown, brace, pasta and bunot, which start real first names (Renalyn, Crownie, Bracelyn). About 100 real English and Filipino first names were probed with no false block; an invented name that starts with a stem fails safe (send refused, clinic sees why). A confirmed sensitive clinic name refused for a dependent text has its own reason, `clinic_name_about_dependent`. Words not on the frozen list (lasik, thyroid, stroke) still pass in names: known limit, listed for the legal consult.
 - Database wiring 1 merged to main. Still required before any real send (Database wiring 2): derive the subject from `assets.kind` and skip inactive assets in the recall loader (G33).
 
+
+## 2026-11-01 -- Demo console before Phase 1 finishes (Patrick)
+- Patrick (live session, "we're just getting to the demo right? Then what's stopping you?"): build the clickable demo console now. This run skips AUTOPILOT step 2 for the parked `claude/upbeat-turing-5echdr` (Database wiring 2); the next run picks it up as usual. The demo does not depend on it: it runs on sample data and the rules already on main.
+- Phase 1 milestones still to do (Wiring 2, real Sheet fetcher, scheduled runner, PH market pack) stay required before any real send. The demo sends nothing.
+
+## 2026-11-01 -- Clickable console: daily autopilot queue (Claude)
+- Stack: Vite + React in `console/`, not Next.js as first planned. The demo is static (no server, no keys), so it builds to plain files that open anywhere; Next.js comes back when Phase 3 needs a server. `npm run console` runs it, `npm run console:build` builds it.
+- The console imports the real domain code: `proposeDailyQueue` (src/send/queue.ts) runs every recall step due today through `prepareSms`, so every previewed text is the exact approved wording with the reply path and stop link, and every held text shows the real reason in plain words.
+- One recall text per person per day in the queue: a second pet or child shows as "Tomorrow" (the gate already enforced this for past sends; the queue now applies it within the day).
+- Money number: `recoveredInMonth` (src/domain/roi.ts) counts bookings this month that followed a text to the same person within 30 days, once each, on the Manila calendar. Demo history is invented.
+- Demo clock: today's date at 10:00 AM Manila, so the queue is never empty because someone opened it at night. Demo controls switch dental and vet, a stale patient list, and 9 PM (quiet hours). "Approve" only marks texts as approved; nothing is sent.
+- Sample wording fits 1 SMS (a test checks it), because cost per text is the first thing an owner asks.
+- UI uses only design/tokens.css and the five components in design/README.md, built in console/src/components (the README's components bundle is not in the repo).

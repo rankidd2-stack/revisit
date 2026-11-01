@@ -7,8 +7,10 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "status": "node scripts/status.mjs"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p console",
+    "status": "node scripts/status.mjs",
+    "console": "vite console",
+    "console:build": "vite build console"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.13",
