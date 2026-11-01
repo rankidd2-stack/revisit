@@ -13,7 +13,7 @@ phase_id,phase,milestone,state
 1,1. Foundation,"Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",todo
 1,1. Foundation,"Scheduled sync runner, optional realtime, stale unfinished runs treated as failed, clinic alert, advisory lock",todo
 1,1. Foundation,Philippines market pack split,todo
-2,2. AI console prototype (sales demo),Clickable console: daily autopilot queue,todo
+2,2. AI console prototype (sales demo),Clickable console: daily autopilot queue,done
 2,2. AI console prototype (sales demo),"Goal-based campaign: type a goal, AI drafts and picks recipients",todo
 2,2. AI console prototype (sales demo),Photo or spreadsheet to patient list,todo
 2,2. AI console prototype (sales demo),Demo shown to 3 clinics,todo

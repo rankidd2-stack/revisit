@@ -161,3 +161,10 @@ G204,compliance-guard,note,Templates,{pet_name} also names a child; consider a n
 G205,compliance-guard,note,Console copy,Stale-sync message said re-upload while the source is a Google Sheet,fixed
 G206,compliance-guard,note,Sending,Confirm with Semaphore that Smart accepts our branded stop-link domain before going live,deferred
 G207,compliance-guard,note,Product,Decide before live sends whether an approved automation needs the daily Approve click; the console must match,deferred
+R211,reviewer,nit,Daily queue,At 9 PM the queue shows today's recall step; the deferred day may need a different step. Re-decide at the send step,deferred
+R212,reviewer,nit,Send pipeline,Per-mobile daily cap does not see past sends of another contact record with the same mobile; send pipeline milestone with R203,deferred
+R213,reviewer,nit,Demo data,"0900 prefix believed unassigned, not verified against the NTC numbering plan",deferred
+R214,reviewer,nit,Tests,"Two pets at 9 PM, and a deferred re-check that passes, not tested",deferred
+G208,compliance-guard,note,Demo data,Confirm 0900 is unassigned (NTC numbering plan) before any public demo link,deferred
+G209,compliance-guard,note,Console copy,"With real data the money card must say ""recall or marketing text""",deferred
+G210,compliance-guard,note,Console copy,"For live clinics consider ""Bookings after a text"" instead of ""Bookings recovered"" (implies causation)",deferred

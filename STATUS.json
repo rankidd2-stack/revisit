@@ -1,6 +1,6 @@
 {
   "project": "Revisit (placeholder name) -- clinic retention console",
-  "lastUpdated": "2026-10-31",
+  "lastUpdated": "2026-11-01",
   "currentPhase": 1,
   "phases": [
     {
@@ -78,11 +78,12 @@
     {
       "id": 2,
       "name": "AI console prototype (sales demo)",
-      "state": "todo",
+      "state": "in_progress",
       "milestones": [
         {
           "name": "Clickable console: daily autopilot queue",
-          "state": "todo"
+          "state": "done",
+          "note": "Sales demo on sample data (console/, npm run console). Nothing sends. Reviewer pass (2 rounds), compliance-guard pass (2 rounds)."
         },
         {
           "name": "Goal-based campaign: type a goal, AI drafts and picks recipients",
@@ -169,7 +170,7 @@
     }
   ],
   "tests": {
-    "passing": 218,
+    "passing": 242,
     "failing": 0
   },
   "needsPatrick": [
