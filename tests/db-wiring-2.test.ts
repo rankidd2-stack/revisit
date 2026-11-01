@@ -430,24 +430,80 @@ describe("round 2: timing comes from the database too (R97 to R99, R105, G36, G3
     await expect(db.query(`insert into sends (clinic_id, contact_id, event_key, kind, channel, approved_by, cycle_visit_on) values ($1, $2, 'reminder:x:24h', 'reminder', 'sms', 'a', '2025-10-30')`, [vet, c])).rejects.toThrow();
   });
 
-  it("a send written before migration 006 counts only for its exact event key (legacy rows)", async () => {
-    const { c, p } = await petWithVisit("Bea", "639170000045");
-    const { svc, r } = await ownService("Ear cleaning", 365);
+  it("the cycle check is validated on every row, and a row's status can still change (R116, R117, G47, G48)", async () => {
+    const [c] = (await db.query<{ convalidated: boolean }>(`select convalidated from pg_constraint where conname = 'recall_cycle_recorded'`)).rows;
+    expect(c!.convalidated).toBe(true);
+    await expect(db.query(`update sends set status = 'sent', provider_message_id = 'm1' where kind = 'recall'`)).resolves.toBeTruthy();
+  });
+
+  it("a pet with recall sends can be deleted; its sends keep their cycle (R122c, G47)", async () => {
+    const { c, p } = await petWithVisit("Cai", "639170000046");
+    const { svc, r } = await ownService("Spay check", 365);
     await visit(p, svc, "2025-10-30");
-    const legacy = async (ruleId: string, due: string) => {
-      // Recreate a pre-006 row: without the cycle columns, so the new check and trigger are set aside.
-      await db.exec(`alter table sends drop constraint recall_cycle_recorded; alter table sends disable trigger sends_recall_cycle`);
-      await db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by)
-                      values ($1, $2, $3, 'recall', $4, $5, $6, 0, 'sms', 'admin')`, [vet, c, `recall:${p}:${ruleId}:${due}:0`, p, ruleId, due]);
-      await db.exec(`alter table sends add constraint recall_cycle_recorded check (
-        (kind = 'recall' and cycle_visit_on is not null and service_category_id is not null)
-        or (kind <> 'recall' and cycle_visit_on is null and service_category_id is null)) not valid;
-        alter table sends enable trigger sends_recall_cycle`);
-    };
-    await legacy(r, "2026-10-29");                       // another cycle's key: does not count
-    expect((await queued(r)).map((i) => i.assetId)).toContain(p);
-    await legacy(r, "2026-10-30");                       // this cycle's exact key: counts
+    await logSend(c, p, r, "2025-10-30", 0, "2026-10-30T01:00:00Z");
+    await db.query(`delete from assets where id = $1`, [p]);
+    const [row] = (await db.query<{ asset_id: string | null; v: string }>(
+      `select asset_id, to_char(cycle_visit_on, 'YYYY-MM-DD') as v from sends where recall_rule_id = $1`, [r])).rows;
+    expect(row).toEqual({ asset_id: null, v: "2025-10-30" });
+  });
+
+  it("a completed appointment and its visit row on the same Manila day are one cycle; another day starts a new one (R122d)", async () => {
+    const { c, p } = await petWithVisit("Dax", "639170000047", "2020-01-01");
+    const { svc, r } = await ownService("Booster", 365);
+    // 2025-10-29 17:00 UTC is 2025-10-30 01:00 in Manila.
+    await db.query(`insert into appointments (clinic_id, asset_id, service_category_id, starts_at, status) values ($1, $2, $3, '2025-10-29T17:00:00Z', 'completed')`, [vet, p, svc]);
+    const item = (await queued(r)).find((i) => i.assetId === p)!;
+    expect(item.cycle.visitOn).toBe("2025-10-30");
+    await logSend(c, p, r, "2025-10-30", 0, "2026-10-30T01:00:00Z");
+    await visit(p, svc, "2025-10-30");
     expect((await queued(r)).map((i) => i.assetId)).not.toContain(p);
+    // A visit two days later is a new cycle: due 2026-11-01, so today's step is -7.
+    await visit(p, svc, "2025-11-01");
+    expect((await queued(r)).find((i) => i.assetId === p)?.event).toEqual(recall(p, r, "2026-11-01", -7));
+  });
+
+  it("a corrected visit date never repeats the step just sent (G46)", async () => {
+    const { c, p } = await petWithVisit("Eli", "639170000048", "2020-01-01");
+    const { svc, r } = await ownService("Heart check", 365);
+    await visit(p, svc, "2025-10-30");
+    await logSend(c, p, r, "2025-10-30", 0, "2026-10-30T01:00:00Z");
+    // The clinic corrects the date to the next day: a new cycle whose step 0 falls tomorrow.
+    await db.query(`update visits set visited_on = '2025-10-31' where asset_id = $1 and service_category_id = $2`, [p, svc]);
+    const tomorrow = new Date("2026-10-31T02:00:00Z");
+    expect((await queued(r, tomorrow)).map((i) => i.assetId)).not.toContain(p);
+    expect(await prep(vet, c, recall(p, r, "2026-10-31", 0), tomorrow)).toEqual({ ok: false, reason: "recall_not_due" });
+    // The next step of the corrected cycle still goes out.
+    expect((await queued(r, new Date("2026-11-14T02:00:00Z"))).find((i) => i.assetId === p)?.event).toEqual(recall(p, r, "2026-10-31", 14));
+  });
+
+  it("a send built before the interval changed is refused when written (R122e)", async () => {
+    const { c, p } = await petWithVisit("Fay", "639170000049", "2020-01-01");
+    const { svc, r } = await ownService("Eye check", 365);
+    await visit(p, svc, "2025-10-30");
+    const res = await prep(vet, c, recall(p, r));
+    if (!res.ok || !res.recallCycle) throw new Error("expected a prepared recall");
+    await db.query(`update recall_rules set interval_days = 364 where id = $1`, [r]);
+    await db.query(`update recall_rules set active = true, approved_by = 'admin' where id = $1`, [r]);
+    await expect(db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, cycle_visit_on, service_category_id)
+                           values ($1, $2, $3, 'recall', $4, $5, '2026-10-30', 0, 'sms', 'admin', $6, $7)`,
+      [vet, c, res.sms.eventKey, p, r, res.recallCycle.visitOn, res.recallCycle.serviceCategoryId])).rejects.toThrow(/due date/);
+  });
+
+  it("a recall send needs an active, approved rule and one of its steps (R119, R122f)", async () => {
+    const { c, p } = await petWithVisit("Gio", "639170000050");
+    const { svc, r } = await ownService("Tick check", 365);
+    const ins = (step: number) => db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, cycle_visit_on, service_category_id)
+                values ($1, $2, $3, 'recall', $4, $5, '2026-10-30', $6, 'sms', 'admin', '2025-10-30', $7)`, [vet, c, `recall:${p}:${r}:2026-10-30:${step}`, p, r, step, svc]);
+    await expect(ins(3)).rejects.toThrow(/steps/);
+    await db.query(`update recall_rules set active = false where id = $1`, [r]);
+    await expect(ins(0)).rejects.toThrow(/active, approved/);
+  });
+
+  it("a service with a recall rule cannot be renamed; one without can (R118)", async () => {
+    const { svc } = await ownService("Grooming plus", 365);
+    await expect(db.query(`update service_categories set name = 'Braces' where id = $1`, [svc])).rejects.toThrow(/renamed/);
+    const free = await id(`insert into service_categories (clinic_id, name) values ($1, 'Bath') returning id`, [vet]);
+    await expect(db.query(`update service_categories set name = 'Bath and dry' where id = $1`, [free])).resolves.toBeTruthy();
   });
 
   it("the queue and the recheck share one grace constant (R115)", () => {

@@ -1,6 +1,6 @@
 import { isUuid, type Db } from "./client.js";
 import { nextRecallStep } from "../domain/recall.js";
-import { addDays, manilaDate } from "../domain/time.js";
+import { daysBetween, manilaDate } from "../domain/time.js";
 import type { SendEvent } from "../send/pipeline.js";
 
 /**
@@ -9,6 +9,9 @@ import type { SendEvent } from "../send/pipeline.js";
  * still due (checkRecallDue) and then runs the send gate (consent, mutes, caps, sync pause).
  * Inactive assets and contacts the clinic marked moved, deceased or do-not-contact are skipped.
  */
+/** Same step, same asset and service: at most once in this many days, across cycles (G46). */
+export const RECALL_STEP_COOLDOWN_DAYS = 30;
+
 export type RecallEvent = Extract<SendEvent, { type: "recall" }>;
 
 /**
@@ -75,16 +78,14 @@ async function dueSteps(db: Db, clinicId: string, ruleId: string, r: RuleRow, no
   // Recall sends for this service on these assets, with the cycle each one recorded when it was
   // written (migration 006: the visit the step was computed from, and the rule's service, which can
   // never change). Sends under ANY rule for the service count, so a replaced rule never restarts a
-  // sequence (R107). Failed sends count too, as in the gate. Rows written before migration 006 have
-  // no recorded cycle; they are kept with their rule and due date and matched on the exact event key.
-  const sends = (await db.query<{ asset_id: string; step_offset_days: number; cycle_visit_on: string | null; legacy_due_on: string | null }>(
+  // sequence (R107). Failed sends count too, as in the gate.
+  const sends = (await db.query<{ asset_id: string; step_offset_days: number; cycle_visit_on: string; sent_on: string }>(
     `select s.asset_id, s.step_offset_days, to_char(s.cycle_visit_on, 'YYYY-MM-DD') as cycle_visit_on,
-            case when s.cycle_visit_on is null and s.recall_rule_id = $3::uuid then to_char(s.cycle_due_on, 'YYYY-MM-DD') end as legacy_due_on
+            to_char(s.sent_at at time zone 'Asia/Manila', 'YYYY-MM-DD') as sent_on
        from sends s
-      where s.clinic_id = $1 and s.kind = 'recall' and s.asset_id is not null
-        and (s.service_category_id = $2 or (s.service_category_id is null and s.recall_rule_id = $3::uuid))
-        and ($4::uuid is null or s.asset_id = $4::uuid)`,
-    [clinicId, r.service_category_id, ruleId, assetId])).rows;
+      where s.clinic_id = $1 and s.kind = 'recall' and s.asset_id is not null and s.service_category_id = $2
+        and ($3::uuid is null or s.asset_id = $3::uuid)`,
+    [clinicId, r.service_category_id, assetId])).rows;
 
   // A NULL inside step_offsets_days would make an unloggable event; such entries are ignored (R103).
   // A step on or before the visit day itself (interval + offset <= 0) could never be counted as sent
@@ -97,14 +98,16 @@ async function dueSteps(db: Db, clinicId: string, ruleId: string, r: RuleRow, no
     if (!ISO_DATE.test(a.last_visit)) throw new Error("Visit date is not YYYY-MM-DD");
     // A send belongs to this cycle only if it recorded this exact last visit (R106, R111, G44).
     // No date comparison: a late-synced visit, earlier or later than the old texts, starts a cycle
-    // that none of the old texts belong to. A pre-006 row counts only if its key is exactly this
-    // cycle's (same rule, due date from this visit and the current interval).
-    const dueOn = addDays(a.last_visit, r.interval_days);
-    const sent = sends.filter((s) => s.asset_id === a.asset_id
-        && (s.cycle_visit_on !== null ? s.cycle_visit_on === a.last_visit : s.legacy_due_on === dueOn))
-      .map((s) => s.step_offset_days);
+    // that none of the old texts belong to.
+    const mine = sends.filter((s) => s.asset_id === a.asset_id);
+    const sent = mine.filter((s) => s.cycle_visit_on === a.last_visit).map((s) => s.step_offset_days);
     const d = nextRecallStep({ rule, lastVisitOn: a.last_visit, hasUpcomingAppointment: a.booked, stepsAlreadySent: sent }, today);
     if (d.action !== "send") continue;
+    // G46: a corrected visit date starts a new cycle, which would repeat a step the patient just got.
+    // The same step for the same asset and service is never sent twice within RECALL_STEP_COOLDOWN_DAYS,
+    // whatever cycle it belonged to. This only ever means fewer texts.
+    const offset = d.stepOffsetDays;
+    if (mine.some((s) => s.step_offset_days === offset && daysBetween(s.sent_on, today) < RECALL_STEP_COOLDOWN_DAYS)) continue;
     items.push({
       contactId: a.contact_id, assetId: a.asset_id,
       cycle: { visitOn: a.last_visit, serviceCategoryId: r.service_category_id },

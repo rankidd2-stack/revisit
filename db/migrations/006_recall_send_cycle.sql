@@ -8,13 +8,16 @@ alter table sends add column service_category_id uuid;
 alter table sends add constraint sends_service_same_clinic
   foreign key (clinic_id, service_category_id) references service_categories (clinic_id, id);
 
--- New recall rows must carry both; other kinds carry neither. Old rows are left alone (NOT VALID).
+-- Recall rows carry both; other kinds carry neither. Validated against every row: no recall send has
+-- ever been written outside tests, so a database that holds one fails here loudly instead of keeping
+-- rows that could never be counted, updated or have their asset deleted (R116, R117, G47, G48).
 alter table sends add constraint recall_cycle_recorded check (
   (kind = 'recall' and cycle_visit_on is not null and service_category_id is not null)
-  or (kind <> 'recall' and cycle_visit_on is null and service_category_id is null)) not valid;
+  or (kind <> 'recall' and cycle_visit_on is null and service_category_id is null));
 
--- The stored cycle must agree with the rule it was sent under, at the moment it is written:
--- the rule's service, and a due date that is the cycle visit plus the rule's interval.
+-- The stored cycle must agree with the rule it was sent under, at the moment it is written: an active,
+-- approved rule of the same clinic, its service, one of its steps, and a due date that is the cycle
+-- visit plus the rule's interval (R119).
 -- Once written, neither column can change.
 create function recall_send_cycle_matches_rule() returns trigger language plpgsql as $$
 declare r record;
@@ -27,9 +30,13 @@ begin
     return new;
   end if;
   if new.kind = 'recall' then
-    select service_category_id, interval_days into r from recall_rules
+    select service_category_id, interval_days, step_offsets_days, active, approved_by into r from recall_rules
      where clinic_id = new.clinic_id and id = new.recall_rule_id;
     if not found then raise exception 'recall send needs a rule of the same clinic'; end if;
+    if not r.active or r.approved_by is null then raise exception 'recall send needs an active, approved rule'; end if;
+    if not (new.step_offset_days = any (r.step_offsets_days)) then
+      raise exception 'recall send step must be one of the rule''s steps';
+    end if;
     if new.service_category_id is distinct from r.service_category_id then
       raise exception 'recall send service must be the rule''s service';
     end if;
@@ -53,5 +60,19 @@ begin
 end $$;
 create trigger recall_rules_service_fixed before update of service_category_id on recall_rules
   for each row execute function recall_rule_service_fixed();
+
+-- A service's name is how sync maps sheet rows to it. Renaming a service that has a recall rule would
+-- move the approved rule and its send history to a different treatment (R118, same class as G43).
+-- A different service is a new row.
+create function service_name_fixed_under_rule() returns trigger language plpgsql as $$
+begin
+  if new.name is distinct from old.name
+     and exists (select 1 from recall_rules where clinic_id = old.clinic_id and service_category_id = old.id) then
+    raise exception 'a service with a recall rule cannot be renamed; add a new service instead';
+  end if;
+  return new;
+end $$;
+create trigger service_categories_name_fixed before update of name on service_categories
+  for each row execute function service_name_fixed_under_rule();
 
 create index on sends (clinic_id, asset_id, service_category_id, cycle_visit_on) where kind = 'recall';
