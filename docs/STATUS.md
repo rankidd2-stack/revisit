@@ -1,8 +1,8 @@
 # Revisit status
 
-Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit by hand.
+Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit by hand.
 
-**Tests:** 218 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 30
+**Tests:** 242 passing, 0 failing · **Current phase:** 1. Foundation · **Open review findings:** 41
 
 ## Needs Patrick
 
@@ -23,7 +23,7 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 | --- | --- | --- |
 | 0. Plan and setup | Done | 3 of 3 |
 | 1. Foundation | In progress | 7 of 11 |
-| 2. AI console prototype (sales demo) | To do | 0 of 4 |
+| 2. AI console prototype (sales demo) | In progress | 1 of 4 |
 | 3. Sending live | To do | 0 of 4 |
 | 4. Paid pilot | To do | 0 of 4 |
 | 5. Growth | To do | 0 of 4 |
@@ -76,3 +76,14 @@ Updated 2026-10-31. Generated from STATUS.json by `npm run status`; don't edit b
 | G33 | compliance-guard | risk | Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send | open |
 | R96 | reviewer | nit | Words not on the frozen default list pass in names (Lasik, Thyroid, Stroke, Asthma); known limit of the safety net, for the legal consult | deferred |
 | G35 | compliance-guard | nit | Confirmation does not store which name was confirmed; rename trigger is the safeguard (part of G32) | deferred |
+| R203 | reviewer | should-fix | Steps sent are keyed by a due date derived from the current interval; editing an interval can resend a step. Key by cycle (last visit) in the send pipeline milestone | deferred |
+| G204 | compliance-guard | note | {pet_name} also names a child; consider a neutral placeholder name later | deferred |
+| G206 | compliance-guard | note | Confirm with Semaphore that Smart accepts our branded stop-link domain before going live | deferred |
+| G207 | compliance-guard | note | Decide before live sends whether an approved automation needs the daily Approve click; the console must match | deferred |
+| R211 | reviewer | nit | At 9 PM the queue shows today's recall step; the deferred day may need a different step. Re-decide at the send step | deferred |
+| R212 | reviewer | nit | Per-mobile daily cap does not see past sends of another contact record with the same mobile; send pipeline milestone with R203 | deferred |
+| R213 | reviewer | nit | 0900 prefix believed unassigned, not verified against the NTC numbering plan | deferred |
+| R214 | reviewer | nit | Two pets at 9 PM, and a deferred re-check that passes, not tested | deferred |
+| G208 | compliance-guard | note | Confirm 0900 is unassigned (NTC numbering plan) before any public demo link | deferred |
+| G209 | compliance-guard | note | With real data the money card must say "recall or marketing text" | deferred |
+| G210 | compliance-guard | note | For live clinics consider "Bookings after a text" instead of "Bookings recovered" (implies causation) | deferred |

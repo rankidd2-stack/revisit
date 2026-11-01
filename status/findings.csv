@@ -135,10 +135,36 @@ R93,reviewer,nit,Tests,No test for renaming and confirming the clinic in one sav
 G29,compliance-guard,fail,SMS rules,"Same as R89: hyphenated notes in a name (""Lola-dialysis"") reached the lock screen",fixed
 G30,compliance-guard,risk,SMS rules,Word forms of stems in names (Pregnant); same fix as R90,fixed
 G31,compliance-guard,risk,Privacy,"A confirmed sensitive clinic name went into texts about dependents; now refused there, and whether it may go out at all is on the legal-consult list",fixed
-G32,compliance-guard,risk,Privacy,"Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login",deferred
-G33,compliance-guard,risk,Privacy,"Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send",open
+G32,compliance-guard,risk,Privacy,Clinic name confirmation is free text with no link to a staff account; a confirmation set on insert now clears. Staff account link waits for the console login,deferred
+G33,compliance-guard,risk,Privacy,Subject (who the text is about) still comes from the caller (G16) and the recall loader must skip inactive assets (G25); both required in Database wiring 2 before any real send,open
 R94,reviewer,should-fix,SMS rules,"Longer forms of 4-5 letter stems passed in names (Oncologist, Chemotherapy, Psychology); 4+ letter stems now match names from a word start, except renal, crown, brace, pasta, bunot",fixed
 R95,reviewer,should-fix,Send pipeline,A confirmed clinic name refused for a dependent text said unconfirmed; now its own reason clinic_name_about_dependent,fixed
 R96,reviewer,nit,SMS rules,"Words not on the frozen default list pass in names (Lasik, Thyroid, Stroke, Asthma); known limit of the safety net, for the legal consult",deferred
-G34,compliance-guard,risk,SMS rules,"Psycho and Mental in names passed; added to the names-only word forms",fixed
+G34,compliance-guard,risk,SMS rules,Psycho and Mental in names passed; added to the names-only word forms,fixed
 G35,compliance-guard,nit,Privacy,Confirmation does not store which name was confirmed; rename trigger is the safeguard (part of G32),deferred
+R200,reviewer,should-fix,Daily queue,Quiet-hours items did not take the one-recall-per-day slot,fixed
+R201,reviewer,should-fix,Daily queue,At quiet hours a text the pipeline would refuse showed as Tomorrow; now re-checked at the send time,fixed
+R202,reviewer,should-fix,Daily queue,Daily slot depended on data order; now goes to the step that has waited longest,fixed
+R203,reviewer,should-fix,Send pipeline,Steps sent are keyed by a due date derived from the current interval; editing an interval can resend a step. Key by cycle (last visit) in the send pipeline milestone,deferred
+R204,reviewer,should-fix,ROI,Reminders counted as recovered bookings; only recall and marketing texts count now,fixed
+R205,reviewer,should-fix,Console copy,Safety line contradicted the cleaning wording (same as G200),fixed
+R206,reviewer,nit,Daily queue,Queue texts are previews; send step must prepare again (documented on proposeDailyQueue),fixed
+R207,reviewer,nit,Daily queue,"Daily cap was per contact, not per mobile",fixed
+R208,reviewer,nit,Console,Held reasons untyped; quiet hour and SMS price hard-coded,fixed
+R209,reviewer,nit,Console,Deceased or do-not-contact shown as Moved; sparkline invented (now under a Sample numbers label),fixed
+R210,reviewer,nit,Console,"Button font sizes hard-coded, off-grid padding, danger text color",fixed
+G200,compliance-guard,risk,Console copy,"""Texts never name a treatment"" next to cleaning wording",fixed
+G201,compliance-guard,risk,Console copy,"""Anyone who said stop"" overclaimed while the stop-link page is not built",fixed
+G202,compliance-guard,risk,Console copy,"Invented money number not labelled on the card; now ""Sample numbers"" and ""within 30 days of a recall text""",fixed
+G203,compliance-guard,risk,Demo data,Sample numbers were valid Globe format; now unassigned 0900 numbers,fixed
+G204,compliance-guard,note,Templates,{pet_name} also names a child; consider a neutral placeholder name later,deferred
+G205,compliance-guard,note,Console copy,Stale-sync message said re-upload while the source is a Google Sheet,fixed
+G206,compliance-guard,note,Sending,Confirm with Semaphore that Smart accepts our branded stop-link domain before going live,deferred
+G207,compliance-guard,note,Product,Decide before live sends whether an approved automation needs the daily Approve click; the console must match,deferred
+R211,reviewer,nit,Daily queue,At 9 PM the queue shows today's recall step; the deferred day may need a different step. Re-decide at the send step,deferred
+R212,reviewer,nit,Send pipeline,Per-mobile daily cap does not see past sends of another contact record with the same mobile; send pipeline milestone with R203,deferred
+R213,reviewer,nit,Demo data,"0900 prefix believed unassigned, not verified against the NTC numbering plan",deferred
+R214,reviewer,nit,Tests,"Two pets at 9 PM, and a deferred re-check that passes, not tested",deferred
+G208,compliance-guard,note,Demo data,Confirm 0900 is unassigned (NTC numbering plan) before any public demo link,deferred
+G209,compliance-guard,note,Console copy,"With real data the money card must say ""recall or marketing text""",deferred
+G210,compliance-guard,note,Console copy,"For live clinics consider ""Bookings after a text"" instead of ""Bookings recovered"" (implies causation)",deferred
