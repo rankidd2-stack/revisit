@@ -34,7 +34,7 @@ begin
      where clinic_id = new.clinic_id and id = new.recall_rule_id;
     if not found then raise exception 'recall send needs a rule of the same clinic'; end if;
     if not r.active or r.approved_by is null then raise exception 'recall send needs an active, approved rule'; end if;
-    if not (new.step_offset_days = any (r.step_offsets_days)) then
+    if coalesce(new.step_offset_days = any (r.step_offsets_days), false) is false then  -- NULL-safe (R124)
       raise exception 'recall send step must be one of the rule''s steps';
     end if;
     if new.service_category_id is distinct from r.service_category_id then

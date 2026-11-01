@@ -219,3 +219,8 @@ G48,compliance-guard,note,Send pipeline,"Legacy rows counted only under their ow
 G49,compliance-guard,note,Privacy,"Send log keeps a dependent's visit date and service after the dependent is deleted; retention period for the legal consult",open
 G50,compliance-guard,note,Send pipeline,"Moving a visit date back can send two different recall steps on back-to-back days; consider a minimum gap between recall texts per asset and service",deferred
 G51,compliance-guard,note,Operations,"Go-live runbook: migration 006 before any real recall send; console must explain the service rename lock and offer a new service",deferred
+R123,reviewer,should-fix,Send pipeline,"Cooldown covered only the same step; a moved visit date could send another recall text days later. Now 7 days minimum between recall texts per asset and service, and no step at or before the furthest one sent in 30 days",fixed
+G50,compliance-guard,note,Send pipeline,"Back-to-back recall texts after a visit date moved back; closed with R123 (7-day minimum gap)",fixed
+R124,reviewer,nit,Database,"A NULL in a rule's steps let any step through the insert trigger; check is now NULL-safe",fixed
+R125,reviewer,nit,Send pipeline,"Send writer must insert the queued sends row before calling the provider, then update status, so a refused insert never leaves an unlogged text",deferred
+R126,reviewer,nit,Tests,"No test that migration 006 refuses to apply over a pre-006 recall row (compliance-guard confirmed it by probe)",deferred

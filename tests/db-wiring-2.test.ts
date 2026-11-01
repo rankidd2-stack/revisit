@@ -457,9 +457,12 @@ describe("round 2: timing comes from the database too (R97 to R99, R105, G36, G3
     await logSend(c, p, r, "2025-10-30", 0, "2026-10-30T01:00:00Z");
     await visit(p, svc, "2025-10-30");
     expect((await queued(r)).map((i) => i.assetId)).not.toContain(p);
-    // A visit two days later is a new cycle: due 2026-11-01, so today's step is -7.
+    // A visit two days later is a new cycle (due 2026-11-01). Its -7 and 0 steps would step back from
+    // or repeat the "due now" text just sent, so they are held (R123); its +14 step goes out.
     await visit(p, svc, "2025-11-01");
-    expect((await queued(r)).find((i) => i.assetId === p)?.event).toEqual(recall(p, r, "2026-11-01", -7));
+    expect((await queued(r)).map((i) => i.assetId)).not.toContain(p);
+    expect((await queued(r, new Date("2026-11-01T02:00:00Z"))).map((i) => i.assetId)).not.toContain(p);
+    expect((await queued(r, new Date("2026-11-15T02:00:00Z"))).find((i) => i.assetId === p)?.event).toEqual(recall(p, r, "2026-11-01", 14));
   });
 
   it("a corrected visit date never repeats the step just sent (G46)", async () => {
@@ -474,6 +477,32 @@ describe("round 2: timing comes from the database too (R97 to R99, R105, G36, G3
     expect(await prep(vet, c, recall(p, r, "2026-10-31", 0), tomorrow)).toEqual({ ok: false, reason: "recall_not_due" });
     // The next step of the corrected cycle still goes out.
     expect((await queued(r, new Date("2026-11-14T02:00:00Z"))).find((i) => i.assetId === p)?.event).toEqual(recall(p, r, "2026-10-31", 14));
+  });
+
+  it("a visit date moved later or earlier never sends a second recall text days after the first (R123, G50)", async () => {
+    const { c, p } = await petWithVisit("Hal", "639170000051", "2020-01-01");
+    const { svc, r } = await ownService("Lab check", 365);
+    await visit(p, svc, "2025-10-30");
+    await logSend(c, p, r, "2025-10-30", 0, "2026-10-30T01:00:00Z");       // "due now" today
+    // A later real visit: its -7 step would fall 3 days after the "due now" text.
+    await visit(p, svc, "2025-11-09");
+    expect((await queued(r, new Date("2026-11-02T02:00:00Z"))).map((i) => i.assetId)).not.toContain(p);
+    // An earlier date instead: its +14 step falls the next day, inside the minimum gap.
+    const { c: c2, p: p2 } = await petWithVisit("Ivy", "639170000052", "2020-01-01");
+    await visit(p2, svc, "2025-10-30");
+    await logSend(c2, p2, r, "2025-10-30", -7, "2026-10-23T01:00:00Z");
+    await db.query(`update visits set visited_on = '2025-10-23' where asset_id = $1 and service_category_id = $2`, [p2, svc]);
+    // Step 0 of the corrected cycle comes 7 days after the -7 text: allowed, it moves forward.
+    expect((await queued(r, new Date("2026-10-30T02:00:00Z"))).find((i) => i.assetId === p2)?.event).toEqual(recall(p2, r, "2026-10-23", 0));
+    // But not the day after the -7 text.
+    expect((await queued(r, new Date("2026-10-24T02:00:00Z"))).map((i) => i.assetId)).not.toContain(p2);
+  });
+
+  it("a NULL in the rule's steps does not let any step through the insert check (R124)", async () => {
+    const { c, p } = await petWithVisit("Jun", "639170000053");
+    const { svc, r } = await ownService("Skin check", 365, "{0,null}");
+    await expect(db.query(`insert into sends (clinic_id, contact_id, event_key, kind, asset_id, recall_rule_id, cycle_due_on, step_offset_days, channel, approved_by, cycle_visit_on, service_category_id)
+                values ($1, $2, $3, 'recall', $4, $5, '2026-10-30', 3, 'sms', 'admin', '2025-10-30', $6)`, [vet, c, `recall:${p}:${r}:2026-10-30:3`, p, r, svc])).rejects.toThrow(/steps/);
   });
 
   it("a send built before the interval changed is refused when written (R122e)", async () => {

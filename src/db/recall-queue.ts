@@ -9,8 +9,14 @@ import type { SendEvent } from "../send/pipeline.js";
  * still due (checkRecallDue) and then runs the send gate (consent, mutes, caps, sync pause).
  * Inactive assets and contacts the clinic marked moved, deceased or do-not-contact are skipped.
  */
-/** Same step, same asset and service: at most once in this many days, across cycles (G46). */
+/**
+ * Across cycles, for the same asset and service (G46, G50, R123): within this many days of a recall
+ * text, no step at or before the furthest step already sent goes out (a corrected visit date never
+ * walks the patient back from "due now" to "due soon").
+ */
 export const RECALL_STEP_COOLDOWN_DAYS = 30;
+/** Across cycles, for the same asset and service: at least this many days between two recall texts. */
+export const RECALL_MIN_GAP_DAYS = 7;
 
 export type RecallEvent = Extract<SendEvent, { type: "recall" }>;
 
@@ -103,11 +109,14 @@ async function dueSteps(db: Db, clinicId: string, ruleId: string, r: RuleRow, no
     const sent = mine.filter((s) => s.cycle_visit_on === a.last_visit).map((s) => s.step_offset_days);
     const d = nextRecallStep({ rule, lastVisitOn: a.last_visit, hasUpcomingAppointment: a.booked, stepsAlreadySent: sent }, today);
     if (d.action !== "send") continue;
-    // G46: a corrected visit date starts a new cycle, which would repeat a step the patient just got.
-    // The same step for the same asset and service is never sent twice within RECALL_STEP_COOLDOWN_DAYS,
-    // whatever cycle it belonged to. This only ever means fewer texts.
+    // G46, G50, R123: a corrected visit date starts a new cycle, which could send a text right after
+    // the one the patient just got, or step back from "due now" to "due soon". Whatever cycle the
+    // recent texts belonged to: none within RECALL_MIN_GAP_DAYS, and within RECALL_STEP_COOLDOWN_DAYS
+    // no step at or before the furthest one sent. Only ever fewer texts.
     const offset = d.stepOffsetDays;
-    if (mine.some((s) => s.step_offset_days === offset && daysBetween(s.sent_on, today) < RECALL_STEP_COOLDOWN_DAYS)) continue;
+    const ago = (s: { sent_on: string }) => daysBetween(s.sent_on, today);
+    if (mine.some((s) => ago(s) < RECALL_MIN_GAP_DAYS)) continue;
+    if (mine.some((s) => ago(s) < RECALL_STEP_COOLDOWN_DAYS && s.step_offset_days >= offset)) continue;
     items.push({
       contactId: a.contact_id, assetId: a.asset_id,
       cycle: { visitOn: a.last_visit, serviceCategoryId: r.service_category_id },
