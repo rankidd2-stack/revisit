@@ -6,15 +6,17 @@ Updated 2026-11-01. Generated from STATUS.json by `npm run status`; don't edit b
 
 ## Needs Patrick
 
-1. **Create a Semaphore account and share an API key**  
+1. **The next two demo screens ("type a goal, get a campaign" and "photo or spreadsheet to patient list") need AI. Real AI means a paid Anthropic API account (pay per use) and a small server. Use real AI now, or labelled sample drafts first?**  
+   Recommended: Sample drafts first, clearly labelled, at no cost. The spreadsheet import works for real without AI. Get the API account once one clinic says yes. The demo link is private: share it from its Share menu if anyone else should open it
+2. **Create a Semaphore account and share an API key**  
    Recommended: Prepaid credits only; no real sends until the pilot clinic approves
-2. **Book 3 dental or vet clinic meetings for the prototype demo**  
+3. **Book 3 dental or vet clinic meetings for the prototype demo**  
    Recommended: Target the week after the prototype ships
-3. **Register the business (DTI) and send one email to DTI Pampanga on free events and announcements**  
+4. **Register the business (DTI) and send one email to DTI Pampanga on free events and announcements**  
    Recommended: Claude drafts the email
-4. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, showing a clinic name that names a treatment ("Smile Implant Center") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)**  
+5. **Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, showing a clinic name that names a treatment ("Smile Implant Center") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)**  
    Recommended: One consult covers all five. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, and the word list stays frozen
-5. **Brand name**  
+6. **Brand name**  
    Recommended: Revisit is a placeholder. Pick a global, non-Filipino brand before the first clinic demo; Claude can shortlist names with free .com domains
 
 ## Phases

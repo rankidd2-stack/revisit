@@ -175,6 +175,10 @@
   },
   "needsPatrick": [
     {
+      "item": "The next two demo screens (\"type a goal, get a campaign\" and \"photo or spreadsheet to patient list\") need AI. Real AI means a paid Anthropic API account (pay per use) and a small server. Use real AI now, or labelled sample drafts first?",
+      "recommendation": "Sample drafts first, clearly labelled, at no cost. The spreadsheet import works for real without AI. Get the API account once one clinic says yes. The demo link is private: share it from its Share menu if anyone else should open it"
+    },
+    {
       "item": "Create a Semaphore account and share an API key",
       "recommendation": "Prepaid credits only; no real sends until the pilot clinic approves"
     },

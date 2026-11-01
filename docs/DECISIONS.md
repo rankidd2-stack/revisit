@@ -199,3 +199,8 @@ Built the "Direction for the parked branch" entry instead of patching the matche
 - Review round 1 (reviewer PASS, compliance-guard PASS): fixed R200-R202, R204-R210 and G200-G203, G205. The daily slot is per mobile, goes to the step that has waited longest, and counts texts deferred by quiet hours; a deferred text is re-checked at its send time. The money number counts only recall and marketing texts and carries a "Sample numbers" label in the demo. Sample mobiles use the unassigned 0900 prefix.
 - DEFERRED: R203 (key sent steps by cycle, send pipeline milestone), G204 ({pet_name} for a child), G206 (Smart and our stop-link domain), G207 (does an approved automation need the daily click? decide before live sends; the demo shows the click).
 - Review round 2: reviewer PASS, compliance-guard PASS. Deferred nits R211-R214 and notes G208-G210 (see status/findings.csv). Milestone done and merged.
+
+## 2026-11-01 -- Demo link and next step
+- The built console is published as a private claude.ai artifact ("Revisit Demo Console") for Patrick to open on his phone and show clinics. It holds only the static build; nothing sends.
+- Merged branch `claude/console-daily-queue` could not be deleted from origin from this session (the remote hung up on delete; pushing main worked). It is fully merged, so step 2 of the next run ignores it; delete it when possible.
+- OPEN for Patrick (needsPatrick): real AI (paid API account) or labelled sample drafts for the next two demo milestones. Recommended: sample drafts first.
