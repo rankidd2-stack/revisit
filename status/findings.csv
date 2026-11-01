@@ -168,3 +168,35 @@ R214,reviewer,nit,Tests,"Two pets at 9 PM, and a deferred re-check that passes, 
 G208,compliance-guard,note,Demo data,Confirm 0900 is unassigned (NTC numbering plan) before any public demo link,deferred
 G209,compliance-guard,note,Console copy,"With real data the money card must say ""recall or marketing text""",deferred
 G210,compliance-guard,note,Console copy,"For live clinics consider ""Bookings after a text"" instead of ""Bookings recovered"" (implies causation)",deferred
+G33,compliance-guard,risk,Privacy,"Subject now derived from assets.kind of the event's own asset (loadSendTarget); recall queue skips inactive assets and non-active contacts (on parked branch claude/upbeat-turing-5echdr)",fixed
+G36,compliance-guard,risk,Privacy,"Import guesses who holds a shared number; a self text to a contact who also has a dependent, package or other asset is now strict",fixed
+G37,compliance-guard,risk,Send pipeline,"prepareFromDb trusted a recall's dueOn and step; now rechecked against the database (recall_not_due)",fixed
+G38,compliance-guard,note,SMS rules,"One recall template serves self and dependent; ""your visit is due"" reads as the parent's. Household wording variant for the console/template milestone",deferred
+G39,compliance-guard,note,Send pipeline,"Reminder target ignores appointment status and time; feedback ignores visit age. Both not_approved today; fix in the reminders milestone (same as R102)",deferred
+G40,compliance-guard,note,Send pipeline,"prepareSms is still callable with a caller-supplied subject; the send pipeline milestone may not be marked done until only prepareFromDb results can be sent",deferred
+G41,compliance-guard,note,Privacy,"Even generic ""a visit is due"" to a shared number reveals that a family member gets care; on the legal-consult item",deferred
+G42,compliance-guard,note,Send pipeline,"Queue grace override not used by the send-time recheck; override removed (same as R108)",fixed
+G43,compliance-guard,risk,Send pipeline,"Moving an approved recall rule to another service keeps it approved and moves its send history; make service_category_id immutable or store the service on each send (same as R112)",open
+G44,compliance-guard,note,Send pipeline,"Old-cycle text sent before a late-synced visit can count as the new cycle's step 0 (same class as R111)",open
+G45,compliance-guard,note,Operations,"Migration 005 fails on existing duplicate active rules; the rule editor should show steps that can never send",deferred
+R97,reviewer,should-fix,Send pipeline,"prepareFromDb trusted a recall's dueOn and stepOffsetDays; now rechecked (recall_not_due)",fixed
+R98,reviewer,should-fix,Send pipeline,"Steps keyed by dueOn repeat when the interval changes; now counted across cycle dates",fixed
+R99,reviewer,should-fix,Send pipeline,"A booking earlier today did not stop the recall; now from the start of the Manila day",fixed
+R100,reviewer,nit,Send pipeline,"One bad visit date throws the whole clinic's recall queue",deferred
+R101,reviewer,nit,Send pipeline,"Sent steps parsed from event_key; now typed sends columns",fixed
+R102,reviewer,nit,Send pipeline,"Reminder and feedback targets ignore appointment status and visit age (both not_approved today)",deferred
+R103,reviewer,nit,Send pipeline,"NULL inside step_offsets_days made an unloggable event; ignored",fixed
+R104,reviewer,nit,Send pipeline,"Two pets due the same day: second text deferred by daily_recall_cap, no merged text",deferred
+R105,reviewer,nit,Tests,"Missing tests for failed sends, other rules, grace, campaign subjects, empty pet label",fixed
+R106,reviewer,blocker,Send pipeline,"Old-cycle text sent after a late-synced visit closed the new cycle; partly fixed by requiring cycle date after the visit, reopened as R111",fixed
+R107,reviewer,should-fix,Send pipeline,"Two active rules for one service ran two sequences; migration 005 allows one active rule per service, sends counted per service",fixed
+R108,reviewer,should-fix,Send pipeline,"Queue graceDays disagreed with the send-time recheck; removed",fixed
+R109,reviewer,nit,Send pipeline,"Steps on or before the visit day were never counted; ignored",fixed
+R110,reviewer,nit,Tests,"Tests for lagged visit, rule replacement, midnight crossing",fixed
+R111,reviewer,blocker,Send pipeline,"A visit before the old due date entered late: the old cycle's -7/0/14 texts still count in the new cycle, so only the +60 win-back goes out. Fix by design: store the base visit date and service on each recall send",open
+R112,reviewer,should-fix,Send pipeline,"Service of a past send read from the rule's current service; rule moves need no re-approval (same as G43)",open
+R113,reviewer,should-fix,Tests,"No test for a visit before the old due date entered late, or a rule moved to another service",open
+R114,reviewer,nit,Operations,"Migration 005 has no cleanup step for existing duplicate active rules",deferred
+R115,reviewer,nit,Send pipeline,"nextRecallStep still takes an optional graceDays; make it one shared constant",open
+G16,compliance-guard,note,Privacy,"Subject derived from assets.kind in loadSendTarget (closed with G33 on the parked branch)",fixed
+G25,compliance-guard,note,Privacy,"Recall queue skips inactive assets (closed with G33 on the parked branch)",fixed

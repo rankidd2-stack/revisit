@@ -184,6 +184,26 @@ Built the "Direction for the parked branch" entry instead of patching the matche
 - Database wiring 1 merged to main. Still required before any real send (Database wiring 2): derive the subject from `assets.kind` and skip inactive assets in the recall loader (G33).
 
 
+## 2026-10-31 -- Database wiring 2: three review rounds, branch parked (scheduled run)
+Built on `claude/upbeat-turing-5echdr`: `loadSendTarget` (subject from assets.kind of the event's own asset, G16/G33),
+`loadRecallQueue` (skips inactive assets and non-active contacts, G25), `prepareFromDb` (every input from rows).
+Claude's calls, all fail-closed:
+- Campaign subject is "other" (strict) when the contact has any dependent, package or other asset, active or not; and a "self" event for such a contact is strict too, because the import only guesses who holds a shared number (G36). Lifted per household once the console lets the clinic confirm the holder.
+- Only a pet's label fills {pet_name}; a dependent's name never goes into a text to a family number.
+- An inactive asset blocks recall, reminder and feedback alike (asset_inactive).
+- A booked or confirmed appointment for any service, from the start of today in Manila, stops a recall.
+- A recall's timing is rechecked against the database at send time (recall_not_due), so a stale or hand-built event can't send "your visit is due" (R97, G37).
+- One active recall rule per service (migration 005); sends under any rule for the service count (R107).
+Reviewer: PASS, FAIL (R106), FAIL (R111). Compliance-guard: PASS WITH RISKS all three rounds.
+
+Step back (AUTOPILOT step 5): rounds 2 and 3 each opened a new hole in the same place, deciding after the fact which
+past sends belong to the current cycle (R98, R106, R111, R112, G43, G44). The approach is wrong, not the details.
+Direction for the next run (Claude, code structure):
+1. Migration 006: add `sends.cycle_visit_on date` and `sends.service_category_id uuid`, required for kind = 'recall' on new rows (NOT VALID for old rows). The send writer fills both from the values the step was computed from.
+2. A send counts toward a cycle only when its `service_category_id` and `cycle_visit_on` equal the asset's current service and last visit. No date comparisons, no reading the rule's current service. Old rows without these columns count only if their event key matches exactly (fewer texts, never more).
+3. Make `recall_rules.service_category_id` immutable once a rule exists (a replacement is a new rule), closing G43/R112.
+4. One grace constant shared by the queue and the recheck (R115). Tests: R113 cases.
+Nothing here sends to patients yet, so the open findings are not live.
 ## 2026-11-01 -- Demo console before Phase 1 finishes (Patrick)
 - Patrick (live session, "we're just getting to the demo right? Then what's stopping you?"): build the clickable demo console now. This run skips AUTOPILOT step 2 for the parked `claude/upbeat-turing-5echdr` (Database wiring 2); the next run picks it up as usual. The demo does not depend on it: it runs on sample data and the rules already on main.
 - Phase 1 milestones still to do (Wiring 2, real Sheet fetcher, scheduled runner, PH market pack) stay required before any real send. The demo sends nothing.

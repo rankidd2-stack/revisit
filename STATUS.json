@@ -58,8 +58,8 @@
         },
         {
           "name": "Database wiring 2: subject derived from assets.kind of the event's asset, recall loader skips inactive assets",
-          "state": "todo",
-          "note": "G33 (covers G16 and G25). Required before any real send. Writing imports and sync runs is already covered by the done Sync apply milestone."
+          "state": "parked",
+          "note": "Parked 2026-10-31 after three review rounds (reviewer FAIL, compliance-guard PASS WITH RISKS). Branch claude/upbeat-turing-5echdr. Open findings: R111 (blocker), R112, R113, R115, G43, G44. Next run follows the 2026-10-31 parked-branch direction in docs/DECISIONS.md: store cycle_visit_on and service on each recall send, make a recall rule's service immutable. Required before any real send."
         },
         {
           "name": "Real Google Sheet fetcher: https-only, redirect allowlist docs.google.com and *.googleusercontent.com, timeout, streamed byte cap, content-type check",
@@ -106,7 +106,8 @@
       "milestones": [
         {
           "name": "Send pipeline with campaign log writes",
-          "state": "todo"
+          "state": "todo",
+          "note": "May not be marked done until G40 is closed: only prepareFromDb results can be sent (compliance-guard)."
         },
         {
           "name": "Reminders, recall, no-show recovery, win-back",
@@ -191,7 +192,7 @@
       "recommendation": "Claude drafts the email"
     },
     {
-      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), keeping an opt-out after an erasure request, showing a clinic name that names a treatment (\"Smile Implant Center\") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)",
+      "item": "Legal check: dental testimonials, texting a family number about a dependent (DPA s.13), including whether even a generic \"a visit is due\" is too revealing, keeping an opt-out after an erasure request, showing a clinic name that names a treatment (\"Smile Implant Center\") in texts, and whether the frozen sensitive word list is enough (names like Lasik or Thyroid still pass)",
       "recommendation": "One consult covers all five. Until then: testimonials off for dental, texts about dependents name nothing (not even cleaning or check-up, nor a clinic name that names a treatment), erased opt-outs are kept, a treatment-naming clinic name goes out only after the clinic confirms it and only in texts about the patient or their pet, and the word list stays frozen"
     },
     {
