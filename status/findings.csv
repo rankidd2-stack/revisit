@@ -217,3 +217,5 @@ G46,compliance-guard,risk,Send pipeline,"A corrected visit date could repeat the
 G47,compliance-guard,risk,Privacy,"Pre-006 recall rows blocked deleting a pet or dependent; check is now VALID, no such rows can exist",fixed
 G48,compliance-guard,note,Send pipeline,"Legacy rows counted only under their own rule; legacy path removed",fixed
 G49,compliance-guard,note,Privacy,"Send log keeps a dependent's visit date and service after the dependent is deleted; retention period for the legal consult",open
+G50,compliance-guard,note,Send pipeline,"Moving a visit date back can send two different recall steps on back-to-back days; consider a minimum gap between recall texts per asset and service",deferred
+G51,compliance-guard,note,Operations,"Go-live runbook: migration 006 before any real recall send; console must explain the service rename lock and offer a new service",deferred
